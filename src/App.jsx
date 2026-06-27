@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { matches } from './data'
 
+const STORAGE_KEY = 'world-cup-recall-progress-v1'
+const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT
+const ADSENSE_SLOT = import.meta.env.VITE_ADSENSE_SLOT
+
 const flagOverrides = {
   'GB-ENG': '🏴',
   'GB-SCT': '🏴',
@@ -33,13 +37,6 @@ function getFlagEmoji(code) {
   return code
     .toUpperCase()
     .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
-}
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(`${value}T12:00:00`))
 }
 
 function getOutcome(home, away) {
@@ -111,61 +108,157 @@ function formatElapsedTime(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-function getStatusLabel(result) {
-  if (!result.complete) {
-    return 'Waiting for score'
+function getProgressTone(entry, index, activeIndex) {
+  if (index === activeIndex) {
+    return 'current'
   }
-  if (result.exact) {
-    return 'Exact hit'
+  if (!entry.locked) {
+    return 'pending'
   }
-  if (result.outcome) {
-    return 'Outcome right'
+  if (entry.result.exact) {
+    return 'exact'
   }
-  return 'Missed'
-}
-
-function getStatusTone(result) {
-  if (!result.complete) {
-    return 'idle'
-  }
-  if (result.exact) {
-    return 'excellent'
-  }
-  if (result.outcome) {
+  if (entry.result.outcome) {
     return 'good'
   }
-  return 'bad'
+  return 'miss'
 }
 
-function getChartTone(result) {
-  if (!result.complete) {
-    return 'idle'
-  }
+function getRevealCopy(result) {
   if (result.exact) {
-    return 'green'
+    return { title: 'Exact Score', tone: 'exact' }
   }
   if (result.outcome) {
-    return 'yellow'
+    return { title: 'Correct Winner', tone: 'good' }
   }
-  return 'red'
+  if (result.points > 0) {
+    return { title: 'Close', tone: 'good' }
+  }
+  return { title: 'Missed', tone: 'miss' }
 }
 
-function TeamPanel({ side, team, code, value, onChange, onKeyDown, inputRef }) {
+function summarizeGroups(results) {
+  const groups = new Map()
+
+  results.forEach(({ match, result, locked }) => {
+    if (!locked) {
+      return
+    }
+
+    const current = groups.get(match.group) ?? { group: match.group, points: 0, matches: 0 }
+    current.points += result.points
+    current.matches += 1
+    groups.set(match.group, current)
+  })
+
+  const entries = [...groups.values()]
+    .map((entry) => ({
+      ...entry,
+      average: entry.matches === 0 ? 0 : entry.points / entry.matches,
+    }))
+    .sort((left, right) => {
+      if (right.average !== left.average) {
+        return right.average - left.average
+      }
+      return left.group.localeCompare(right.group)
+    })
+
+  return {
+    best: entries[0] ?? null,
+    worst: entries.at(-1) ?? null,
+  }
+}
+
+function createDefaultGameState() {
+  return {
+    fixtureOrder: shuffleArray(matches),
+    guesses: Object.fromEntries(matches.map((match) => [match.id, { home: '', away: '' }])),
+    lockedMatches: {},
+    activeIndex: 0,
+    elapsedSeconds: 0,
+  }
+}
+
+function restoreGameState() {
+  const fallback = createDefaultGameState()
+
+  if (typeof window === 'undefined') {
+    return fallback
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) {
+      return fallback
+    }
+
+    const saved = JSON.parse(raw)
+    const matchesById = new Map(matches.map((match) => [match.id, match]))
+    const orderedIds = Array.isArray(saved.fixtureOrderIds) ? saved.fixtureOrderIds : []
+
+    if (orderedIds.length !== matches.length || new Set(orderedIds).size !== matches.length) {
+      return fallback
+    }
+
+    const fixtureOrder = orderedIds
+      .map((id) => matchesById.get(id))
+      .filter(Boolean)
+
+    if (fixtureOrder.length !== matches.length) {
+      return fallback
+    }
+
+    const guesses = Object.fromEntries(matches.map((match) => {
+      const savedGuess = saved.guesses?.[match.id] ?? {}
+      return [
+        match.id,
+        {
+          home: typeof savedGuess.home === 'string' ? savedGuess.home.replace(/\D/g, '').slice(0, 1) : '',
+          away: typeof savedGuess.away === 'string' ? savedGuess.away.replace(/\D/g, '').slice(0, 1) : '',
+        },
+      ]
+    }))
+
+    const lockedMatches = Object.fromEntries(matches.map((match) => [
+      match.id,
+      Boolean(saved.lockedMatches?.[match.id]),
+    ]))
+
+    const maxIndex = matches.length - 1
+    const activeIndex = Number.isInteger(saved.activeIndex)
+      ? Math.max(0, Math.min(maxIndex, saved.activeIndex))
+      : 0
+    const elapsedSeconds = Number.isInteger(saved.elapsedSeconds) && saved.elapsedSeconds >= 0
+      ? saved.elapsedSeconds
+      : 0
+
+    return {
+      fixtureOrder,
+      guesses,
+      lockedMatches,
+      activeIndex,
+      elapsedSeconds,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function TeamInput({ team, code, value, onChange, onKeyDown, inputRef, disabled }) {
   return (
-    <div className={`team-panel ${side}`}>
-      <div className="crest-glow" />
-      <div className="team-header">
-        <span className="flag-badge" aria-hidden="true">{getFlagEmoji(code)}</span>
-        <span className="team-label">{team}</span>
+    <div className="team-block">
+      <div className="team-nameplate">
+        <span className="team-flag" aria-hidden="true">{getFlagEmoji(code)}</span>
+        <h2>{team}</h2>
       </div>
       <input
         ref={inputRef}
         aria-label={`${team} score`}
-        className="score-input"
+        className="score-box"
+        disabled={disabled}
         inputMode="numeric"
-        min="0"
-        max="9"
-        type="number"
+        pattern="[0-9]*"
+        type="text"
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -174,48 +267,150 @@ function TeamPanel({ side, team, code, value, onChange, onKeyDown, inputRef }) {
   )
 }
 
-function ResultPanel({ match, result, locked }) {
-  if (!locked) {
-    return (
-      <div className="result-panel pending" />
-    )
+function AdSlot({ client, slot, className = '' }) {
+  useEffect(() => {
+    if (!client || !slot || typeof window === 'undefined') {
+      return
+    }
+
+    const existingScript = document.querySelector('script[data-adsense-script="true"]')
+
+    if (!existingScript) {
+      const script = document.createElement('script')
+      script.async = true
+      script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`
+      script.crossOrigin = 'anonymous'
+      script.dataset.adsenseScript = 'true'
+      document.head.appendChild(script)
+    }
+  }, [client, slot])
+
+  useEffect(() => {
+    if (!client || !slot || typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      window.adsbygoogle = window.adsbygoogle || []
+      window.adsbygoogle.push({})
+    } catch {
+      // AdSense can fail silently on localhost or unapproved domains.
+    }
+  }, [client, slot])
+
+  if (!client || !slot) {
+    return null
   }
 
   return (
-    <div className="result-panel">
-      <div className={`status-chip ${getStatusTone(result)}`}>{getStatusLabel(result)}</div>
-      <div className="fact-row">
-        <span>Actual score</span>
-        <strong>{match.homeScore} - {match.awayScore}</strong>
-      </div>
-      <div className="pill-row">
-        <span className={`pill ${result.exact ? 'good' : 'bad'}`}>
-          {result.exact ? 'Exact score' : 'Exact score missed'}
-        </span>
-        <span className={`pill ${result.outcome ? 'good' : 'bad'}`}>
-          {result.outcome ? 'Winner or draw right' : 'Winner or draw wrong'}
-        </span>
-        <span className={`pill ${result.teamGoals > 0 ? 'good' : 'bad'}`}>
-          {result.teamGoals === 2 ? 'Both team totals right' : result.teamGoals === 1 ? 'One team total right' : 'Team totals wrong'}
-        </span>
-      </div>
-      <div className="points-panel">
-        <span>Points from this match</span>
-        <strong>{result.points}</strong>
-      </div>
+    <div className={`ad-slot-shell ${className}`.trim()}>
+      <p className="ad-label">Sponsored</p>
+      <ins
+        className="adsbygoogle ad-slot"
+        style={{ display: 'block' }}
+        data-ad-client={client}
+        data-ad-slot={slot}
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   )
 }
 
-export default function App() {
-  const [fixtureOrder, setFixtureOrder] = useState(() => shuffleArray(matches))
-  const [guesses, setGuesses] = useState(() =>
-    Object.fromEntries(matches.map((match) => [match.id, { home: '', away: '' }])),
+function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) {
+  return {
+    game: 'World Cup Recall',
+    exportedAt: new Date().toISOString(),
+    points: metrics.score,
+    maxPoints: metrics.maxScore,
+    percentile: metrics.percentile,
+    rating: metrics.rating.title,
+    exactScores: metrics.exact,
+    correctWinners: metrics.calls,
+    elapsedSeconds,
+    matches: fixtureOrder.map((match) => {
+      const guess = guesses[match.id]
+      const result = metrics.results.find((entry) => entry.match.id === match.id)?.result
+
+      return {
+        matchNumber: fixtureOrder.findIndex((item) => item.id === match.id) + 1,
+        homeTeam: match.homeTeam,
+        awayTeam: match.awayTeam,
+        guessedScore: `${guess.home}-${guess.away}`,
+        actualScore: `${match.homeScore}-${match.awayScore}`,
+        points: result?.points ?? 0,
+        exact: result?.exact ?? false,
+        correctOutcome: result?.outcome ?? false,
+      }
+    }),
+  }
+}
+
+function CompletionScreen({ metrics, elapsedSeconds, onReset, onShare, onExport, shareState, exportState }) {
+  return (
+    <section className="completion-screen">
+      <p className="screen-title">WORLD CUP RECALL</p>
+      <h2 className="hero-title">WORLD CUP RECALL</h2>
+      <p className="completion-points-label">Points</p>
+      <h1>{metrics.score} / {metrics.maxScore}</h1>
+      <p className="completion-rank">Top {100 - metrics.percentile}%</p>
+
+      <div className="completion-grid">
+        <div>
+          <span>Exact Scores</span>
+          <strong>{metrics.exact}</strong>
+        </div>
+        <div>
+          <span>Correct Winners</span>
+          <strong>{metrics.calls}</strong>
+        </div>
+        <div>
+          <span>Best Group</span>
+          <strong>{metrics.bestGroup ? `Group ${metrics.bestGroup.group}` : 'N/A'}</strong>
+        </div>
+        <div>
+          <span>Toughest Group</span>
+          <strong>{metrics.worstGroup ? `Group ${metrics.worstGroup.group}` : 'N/A'}</strong>
+        </div>
+        <div>
+          <span>Time</span>
+          <strong>{formatElapsedTime(elapsedSeconds)}</strong>
+        </div>
+        <div>
+          <span>Rating</span>
+          <strong>{metrics.rating.title}</strong>
+        </div>
+      </div>
+
+      <p className="completion-note">{metrics.rating.note}</p>
+
+      <div className="completion-actions">
+        <button className="primary-button" onClick={onReset}>Play Again</button>
+        <button className="secondary-button" onClick={onShare}>Share Results</button>
+        <button className="secondary-button" onClick={onExport}>Export Results</button>
+      </div>
+
+      <p className="share-feedback">
+        {shareState === 'shared' && 'Shared'}
+        {shareState === 'copied' && 'Copied share text'}
+        {shareState === 'error' && 'Share failed'}
+        {exportState === 'saved' && 'Exported results file'}
+        {exportState === 'error' && 'Export failed'}
+      </p>
+    </section>
   )
-  const [lockedMatches, setLockedMatches] = useState({})
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+}
+
+export default function App() {
+  const [initialState] = useState(() => restoreGameState())
+  const [fixtureOrder, setFixtureOrder] = useState(initialState.fixtureOrder)
+  const [guesses, setGuesses] = useState(initialState.guesses)
+  const [lockedMatches, setLockedMatches] = useState(initialState.lockedMatches)
+  const [activeIndex, setActiveIndex] = useState(initialState.activeIndex)
+  const [elapsedSeconds, setElapsedSeconds] = useState(initialState.elapsedSeconds)
   const [shareState, setShareState] = useState('idle')
+  const [exportState, setExportState] = useState('idle')
+  const [revealMatchId, setRevealMatchId] = useState(null)
   const homeInputRef = useRef(null)
   const awayInputRef = useRef(null)
 
@@ -224,7 +419,7 @@ export default function App() {
       return
     }
 
-    const trimmed = value.slice(0, 1)
+    const trimmed = value.replace(/\D/g, '').slice(0, 1)
     setGuesses((current) => ({
       ...current,
       [matchId]: {
@@ -234,39 +429,69 @@ export default function App() {
     }))
   }
 
-  function handleNext() {
-    setActiveIndex((current) => Math.min(fixtureOrder.length - 1, current + 1))
-  }
-
-  function handlePrev() {
-    setActiveIndex((current) => Math.max(0, current - 1))
-  }
-
-  function handleJump(index) {
-    setActiveIndex(index)
-  }
-
-  function handleReset() {
-    setFixtureOrder(shuffleArray(matches))
-    setGuesses(Object.fromEntries(matches.map((match) => [match.id, { home: '', away: '' }])))
-    setLockedMatches({})
-    setActiveIndex(0)
-    setElapsedSeconds(0)
+  function resetGame() {
+    const nextState = createDefaultGameState()
+    setFixtureOrder(nextState.fixtureOrder)
+    setGuesses(nextState.guesses)
+    setLockedMatches(nextState.lockedMatches)
+    setActiveIndex(nextState.activeIndex)
+    setElapsedSeconds(nextState.elapsedSeconds)
     setShareState('idle')
+    setExportState('idle')
+    setRevealMatchId(null)
   }
+
+  const metrics = useMemo(() => {
+    const results = fixtureOrder.map((match) => ({
+      match,
+      result: scorePrediction(match, guesses[match.id]),
+      locked: Boolean(lockedMatches[match.id]),
+    }))
+
+    const lockedResults = results.filter(({ locked }) => locked)
+    const score = lockedResults.reduce((total, item) => total + item.result.points, 0)
+    const maxScore = fixtureOrder.length * 7
+    const exact = lockedResults.filter(({ result }) => result.exact).length
+    const calls = lockedResults.filter(({ result }) => result.outcome).length
+    const percentile = computePercentile(score, maxScore)
+    const rating = buildRating(percentile)
+    const groupSummary = summarizeGroups(results)
+
+    return {
+      results,
+      lockedCount: lockedResults.length,
+      score,
+      maxScore,
+      exact,
+      calls,
+      percentile,
+      rating,
+      bestGroup: groupSummary.best,
+      worstGroup: groupSummary.worst,
+    }
+  }, [fixtureOrder, guesses, lockedMatches])
+
+  const activeEntry = metrics.results[activeIndex]
+  const activeMatch = activeEntry.match
+  const activeGuess = guesses[activeMatch.id]
+  const activeResult = activeEntry.result
+  const activeLocked = activeEntry.locked
+  const revealEntry = revealMatchId === null
+    ? null
+    : metrics.results.find((entry) => entry.match.id === revealMatchId) ?? null
+  const allRevealed = metrics.lockedCount === fixtureOrder.length
+  const showCompletion = allRevealed && revealEntry === null
+  const progressPercent = (metrics.lockedCount / fixtureOrder.length) * 100
 
   async function handleShareScores() {
-    const summary = metrics.resultsUnlocked
-      ? `I scored ${metrics.score}/${metrics.maxScore} on my World Cup 2026 final score guess card. Exact hits: ${metrics.exact}. Time: ${formatElapsedTime(elapsedSeconds)}.`
-      : metrics.completedCount > 0
-        ? `I have guessed ${metrics.completedCount}/${fixtureOrder.length} final scores on my World Cup 2026 card.`
-        : 'I am building my World Cup 2026 final score guess card.'
-    const shareText = `${summary} #WorldCup2026 #FinalScoreGuess`
+    setExportState('idle')
+    const summary = `I scored ${metrics.score}/${metrics.maxScore} on World Cup Recall. Exact scores: ${metrics.exact}. Correct winners: ${metrics.calls}. Time: ${formatElapsedTime(elapsedSeconds)}.`
+    const shareText = `${summary} #WorldCupRecall`
 
     try {
       if (navigator.share) {
         await navigator.share({
-          title: 'World Cup 2026 Final Score Guess',
+          title: 'World Cup Recall',
           text: shareText,
         })
         setShareState('shared')
@@ -280,45 +505,33 @@ export default function App() {
     }
   }
 
-  const metrics = useMemo(() => {
-    const results = fixtureOrder.map((match) => ({
-      match,
-      result: scorePrediction(match, guesses[match.id]),
-      locked: Boolean(lockedMatches[match.id]),
-    }))
+  function handleExportResults() {
+    setShareState('idle')
 
-    const completed = results.filter(({ result }) => result.complete)
-    const scored = results.filter(({ locked }) => locked)
-    const score = scored.reduce((total, item) => total + item.result.points, 0)
-    const maxScore = fixtureOrder.length * 7
-    const exact = scored.filter(({ result }) => result.exact).length
-    const calls = scored.filter(({ result }) => result.outcome).length
-    const percentile = computePercentile(score, maxScore)
-    const rating = buildRating(percentile)
-
-    return {
-      results,
-      completedCount: completed.length,
-      lockedCount: scored.length,
-      score,
-      maxScore,
-      exact,
-      calls,
-      percentile,
-      rating,
+    try {
+      const payload = buildExportPayload({
+        fixtureOrder,
+        guesses,
+        metrics,
+        elapsedSeconds,
+      })
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'world-cup-recall-results.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      setExportState('saved')
+    } catch {
+      setExportState('error')
     }
-  }, [fixtureOrder, guesses, lockedMatches])
-
-  const activeEntry = metrics.results[activeIndex]
-  const activeMatch = activeEntry.match
-  const activeGuess = guesses[activeMatch.id]
-  const activeResult = activeEntry.result
-  const activeLocked = activeEntry.locked
-  const isLast = activeIndex === fixtureOrder.length - 1
-  const allRevealed = metrics.lockedCount === fixtureOrder.length
+  }
 
   function handleSubmitCurrentFixture() {
-    if (!activeResult.complete || activeLocked) {
+    if (!activeResult.complete || activeLocked || revealMatchId !== null) {
       return
     }
 
@@ -326,10 +539,7 @@ export default function App() {
       ...current,
       [activeMatch.id]: true,
     }))
-
-    if (!isLast) {
-      setActiveIndex((current) => current + 1)
-    }
+    setRevealMatchId(activeMatch.id)
   }
 
   useEffect(() => {
@@ -345,28 +555,42 @@ export default function App() {
   }, [allRevealed])
 
   useEffect(() => {
-    if (activeLocked) {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      fixtureOrderIds: fixtureOrder.map((match) => match.id),
+      guesses,
+      lockedMatches,
+      activeIndex,
+      elapsedSeconds,
+    }))
+  }, [activeIndex, elapsedSeconds, fixtureOrder, guesses, lockedMatches])
+
+  useEffect(() => {
+    if (revealEntry === null) {
+      return undefined
+    }
+
+    const revealIndex = metrics.results.findIndex((entry) => entry.match.id === revealEntry.match.id)
+    const timeoutId = window.setTimeout(() => {
+      setRevealMatchId(null)
+      if (revealIndex < fixtureOrder.length - 1) {
+        setActiveIndex(revealIndex + 1)
+      }
+    }, 1100)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [fixtureOrder.length, metrics.results, revealEntry])
+
+  useEffect(() => {
+    if (revealEntry || activeLocked) {
       return
     }
 
     const target = activeGuess.home === '' ? homeInputRef.current : awayInputRef.current
     target?.focus()
     target?.select?.()
-  }, [activeIndex, activeGuess.home, activeLocked])
+  }, [activeGuess.home, activeLocked, activeIndex, revealEntry])
 
   function handleHomeKeyDown(event) {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      handlePrev()
-      return
-    }
-
-    if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      handleNext()
-      return
-    }
-
     if (event.key !== 'Enter') {
       return
     }
@@ -377,193 +601,112 @@ export default function App() {
   }
 
   function handleAwayKeyDown(event) {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      handlePrev()
-      return
-    }
-
-    if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      handleNext()
-      return
-    }
-
     if (event.key !== 'Enter') {
       return
     }
 
     event.preventDefault()
-    if (!activeResult.complete) {
-      return
-    }
-
     handleSubmitCurrentFixture()
   }
 
+  if (showCompletion) {
+    return (
+      <main className="app-shell app-shell-complete">
+        <div className="background-wash" />
+        <CompletionScreen
+          metrics={metrics}
+          elapsedSeconds={elapsedSeconds}
+          onReset={resetGame}
+          onShare={handleShareScores}
+          onExport={handleExportResults}
+          shareState={shareState}
+          exportState={exportState}
+        />
+      </main>
+    )
+  }
+
+  const revealCopy = revealEntry ? getRevealCopy(revealEntry.result) : null
+
   return (
     <main className="app-shell">
-      <div className="background-orb orb-a" />
-      <div className="background-orb orb-b" />
-      <div className="background-orb orb-c" />
+      <div className="background-wash" />
 
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <h1>World Cup 2026 Final Score Guess</h1>
+      <header className="game-header">
+        <div>
+          <p className="screen-title">WORLD CUP RECALL</p>
+          <h1 className="hero-title">WORLD CUP RECALL</h1>
         </div>
-        <div className="top-logo" aria-label="World Cup final score guess logo">
-          <span className="logo-ball">O</span>
-          <span className="logo-wordmark">WC26</span>
-        </div>
-      </section>
+        <p className="match-counter">Match {activeIndex + 1} / {fixtureOrder.length}</p>
+      </header>
 
-      <section className="experience-layout">
-        <aside className="progress-panel">
+      <AdSlot client={ADSENSE_CLIENT} slot={ADSENSE_SLOT} className="top-ad-slot" />
+
+      <section className="game-layout">
+        <aside className="progress-rail" aria-label="Match progress">
           <div className="progress-copy">
-            <p className="section-label">Matchday Progress</p>
-            <h2>Work through the shuffled fixtures</h2>
+            <span>{metrics.lockedCount} complete</span>
+            <strong>{fixtureOrder.length - metrics.lockedCount} left</strong>
           </div>
 
-          <div className="progress-bar">
-            <span style={{ width: `${(metrics.completedCount / fixtureOrder.length) * 100}%` }} />
+          <div className="progress-bar" aria-hidden="true">
+            <span style={{ width: `${progressPercent}%` }} />
           </div>
 
-          <div className="match-dots">
+          <div className="fixture-grid" aria-hidden="true">
             {metrics.results.map((entry, index) => (
-              <button
+              <span
                 key={entry.match.id}
-                className={`match-dot ${index === activeIndex ? 'active' : ''} ${entry.locked ? getChartTone(entry.result) : entry.result.complete ? 'filled' : 'idle'}`}
-                onClick={() => handleJump(index)}
-                aria-label={`Open match ${index + 1}`}
-              >
-                <span>{index + 1}</span>
-                <small>{entry.match.group}</small>
-              </button>
+                className={`fixture-cell ${getProgressTone(entry, index, activeIndex)}`}
+              />
             ))}
-          </div>
-
-          <div className="rating-card">
-            <p className="section-label">Leaderboard Pulse</p>
-            <h3>{metrics.lockedCount > 0 ? metrics.rating.title : 'Results locked'}</h3>
-            <div className="ranking-line">
-              {metrics.lockedCount > 0 ? `Top ${100 - metrics.percentile}%` : `${metrics.completedCount}/${fixtureOrder.length} guessed`}
-            </div>
-            <div className="leaderboard-time">Time: {formatElapsedTime(elapsedSeconds)}</div>
-            <p>{metrics.lockedCount > 0 ? metrics.rating.note : 'Submit a score guess to start scoring.'}</p>
-          </div>
-
-          <div className="rules-card">
-            <p className="section-label">How Scoring Works</p>
-            <div>Exact score: 7 pts</div>
-            <div>Correct winner or draw: 2 pts</div>
-            <div>Correct team goals: 1 pt each</div>
-            <div>Correct goal difference without exact score: +1 pt</div>
           </div>
         </aside>
 
         <section className="match-stage">
-          <div className="stage-topbar">
-            <div>
-              <p className="section-label">Fixture {activeIndex + 1} of {fixtureOrder.length}</p>
-              <h2>Group {activeMatch.group} • {formatDate(activeMatch.date)}</h2>
-            </div>
-            <div className={`stage-badge ${activeLocked ? 'revealed' : 'live'}`}>
-              {activeLocked ? 'Locked' : 'Open'}
-            </div>
-          </div>
-
-          <article className="featured-match">
-            <div className="fixture-banner">
-              <span>FIFA World Cup 26</span>
-              <span>Guess the final score and lock it in</span>
-            </div>
-
-            <div className="team-grid">
-              <TeamPanel
-                side="home"
-                team={activeMatch.homeTeam}
-                code={activeMatch.homeCode}
-                value={activeGuess.home}
-                onChange={(event) => handleChange(activeMatch.id, 'home', event.target.value)}
-                onKeyDown={handleHomeKeyDown}
-                inputRef={homeInputRef}
-              />
-
-              <div className="versus-core">
-                <div className="versus-ring">FT</div>
-                <span>Guess the final score</span>
+          <article className={`match-card ${revealEntry ? 'is-revealing' : ''}`}>
+            {revealEntry ? (
+              <div className={`reveal-card ${revealCopy.tone}`}>
+                <p>{revealCopy.title}</p>
+                <h1>{revealEntry.match.homeTeam} {revealEntry.match.homeScore} - {revealEntry.match.awayScore} {revealEntry.match.awayTeam}</h1>
+                <strong>+{revealEntry.result.points} points</strong>
               </div>
+            ) : (
+              <>
+                <div className="score-row">
+                  <TeamInput
+                    team={activeMatch.homeTeam}
+                    code={activeMatch.homeCode}
+                    value={activeGuess.home}
+                    onChange={(event) => handleChange(activeMatch.id, 'home', event.target.value)}
+                    onKeyDown={handleHomeKeyDown}
+                    inputRef={homeInputRef}
+                    disabled={false}
+                  />
 
-              <TeamPanel
-                side="away"
-                team={activeMatch.awayTeam}
-                code={activeMatch.awayCode}
-                value={activeGuess.away}
-                onChange={(event) => handleChange(activeMatch.id, 'away', event.target.value)}
-                onKeyDown={handleAwayKeyDown}
-                inputRef={awayInputRef}
-              />
-            </div>
+                  <div className="match-divider">FT</div>
 
-            <ResultPanel match={activeMatch} result={activeResult} locked={activeLocked} />
-
-            <div className="keyboard-hint">
-              `Enter` saves this fixture. `←` and `→` move between fixtures.
-            </div>
-          </article>
-
-          <section className="footer-panels">
-            <div className="summary-card">
-              <p className="section-label">Scorecard</p>
-              <div className="bottom-score-hero">
-                <div>
-                  <span className="bottom-score-label">Tournament points</span>
-                  <strong>{metrics.score}/{metrics.maxScore}</strong>
+                  <TeamInput
+                    team={activeMatch.awayTeam}
+                    code={activeMatch.awayCode}
+                    value={activeGuess.away}
+                    onChange={(event) => handleChange(activeMatch.id, 'away', event.target.value)}
+                    onKeyDown={handleAwayKeyDown}
+                    inputRef={awayInputRef}
+                    disabled={false}
+                  />
                 </div>
-                <div>
-                  <span className="bottom-score-label">Projected finish</span>
-                  <strong>Top {100 - metrics.percentile}%</strong>
-                </div>
-              </div>
-              <div className="scorecard-actions">
-                <button className="secondary" onClick={handleShareScores}>
-                  Share to social
+
+                <button
+                  className="primary-button submit-button"
+                  disabled={!activeResult.complete}
+                  onClick={handleSubmitCurrentFixture}
+                >
+                  Submit
                 </button>
-                <button className="ghost" onClick={handleReset}>Reset everything</button>
-                <span className="share-status">
-                  {shareState === 'shared' && 'Shared'}
-                  {shareState === 'copied' && 'Copied share text'}
-                  {shareState === 'error' && 'Share failed'}
-                </span>
-              </div>
-              <div className="summary-grid">
-                <div>
-                  <span>Scores guessed</span>
-                  <strong>{metrics.completedCount}</strong>
-                </div>
-                <div>
-                  <span>Scored picks</span>
-                  <strong>{metrics.lockedCount}</strong>
-                </div>
-                <div>
-                  <span>Exact hits</span>
-                  <strong>{metrics.exact}</strong>
-                </div>
-                <div>
-                  <span>Table read</span>
-                  <strong>{metrics.rating.title}</strong>
-                </div>
-                <div>
-                  <span>Time</span>
-                  <strong>{formatElapsedTime(elapsedSeconds)}</strong>
-                </div>
-                <div>
-                  <span>Outcome calls</span>
-                  <strong>{metrics.calls}</strong>
-                </div>
-              </div>
-            </div>
-          </section>
+              </>
+            )}
+          </article>
         </section>
       </section>
     </main>
