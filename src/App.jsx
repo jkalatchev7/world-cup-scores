@@ -11,7 +11,7 @@ const tiers = [
   { min: 82, title: 'Knockout Lock', note: 'You are reading scorelines better than most of the field.' },
   { min: 68, title: 'Group Boss', note: 'Strong work. Plenty of sharp calls with only a few misses.' },
   { min: 50, title: 'Still Alive', note: 'You are landing some outcomes, but exact scores are slipping away.' },
-  { min: 0, title: 'Chaos Agent', note: 'Unpredictable card. Spectacular confidence, mixed results.' },
+  { min: 0, title: 'Chaos Agent', note: 'Spectacular confidence, mixed results.' },
 ]
 
 function shuffleArray(items) {
@@ -177,9 +177,7 @@ function TeamPanel({ side, team, code, value, onChange, onKeyDown, inputRef }) {
 function ResultPanel({ match, result, locked }) {
   if (!locked) {
     return (
-      <div className="result-panel pending">
-        <p>Call the scoreline, then reveal the full-time result for this fixture.</p>
-      </div>
+      <div className="result-panel pending" />
     )
   }
 
@@ -214,12 +212,18 @@ export default function App() {
   const [guesses, setGuesses] = useState(() =>
     Object.fromEntries(matches.map((match) => [match.id, { home: '', away: '' }])),
   )
+  const [lockedMatches, setLockedMatches] = useState({})
   const [activeIndex, setActiveIndex] = useState(0)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [shareState, setShareState] = useState('idle')
   const homeInputRef = useRef(null)
   const awayInputRef = useRef(null)
 
   function handleChange(matchId, side, value) {
+    if (lockedMatches[matchId]) {
+      return
+    }
+
     const trimmed = value.slice(0, 1)
     setGuesses((current) => ({
       ...current,
@@ -245,19 +249,46 @@ export default function App() {
   function handleReset() {
     setFixtureOrder(shuffleArray(matches))
     setGuesses(Object.fromEntries(matches.map((match) => [match.id, { home: '', away: '' }])))
+    setLockedMatches({})
     setActiveIndex(0)
     setElapsedSeconds(0)
+    setShareState('idle')
+  }
+
+  async function handleShareScores() {
+    const summary = metrics.resultsUnlocked
+      ? `I scored ${metrics.score}/${metrics.maxScore} on my World Cup 2026 final score guess card. Exact hits: ${metrics.exact}. Time: ${formatElapsedTime(elapsedSeconds)}.`
+      : metrics.completedCount > 0
+        ? `I have guessed ${metrics.completedCount}/${fixtureOrder.length} final scores on my World Cup 2026 card.`
+        : 'I am building my World Cup 2026 final score guess card.'
+    const shareText = `${summary} #WorldCup2026 #FinalScoreGuess`
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'World Cup 2026 Final Score Guess',
+          text: shareText,
+        })
+        setShareState('shared')
+        return
+      }
+
+      await navigator.clipboard.writeText(shareText)
+      setShareState('copied')
+    } catch {
+      setShareState('error')
+    }
   }
 
   const metrics = useMemo(() => {
     const results = fixtureOrder.map((match) => ({
       match,
       result: scorePrediction(match, guesses[match.id]),
+      locked: Boolean(lockedMatches[match.id]),
     }))
 
     const completed = results.filter(({ result }) => result.complete)
-    const allGuessed = completed.length === fixtureOrder.length
-    const scored = allGuessed ? completed : []
+    const scored = results.filter(({ locked }) => locked)
     const score = scored.reduce((total, item) => total + item.result.points, 0)
     const maxScore = fixtureOrder.length * 7
     const exact = scored.filter(({ result }) => result.exact).length
@@ -268,7 +299,7 @@ export default function App() {
     return {
       results,
       completedCount: completed.length,
-      resultsUnlocked: allGuessed,
+      lockedCount: scored.length,
       score,
       maxScore,
       exact,
@@ -276,14 +307,30 @@ export default function App() {
       percentile,
       rating,
     }
-  }, [fixtureOrder, guesses])
+  }, [fixtureOrder, guesses, lockedMatches])
 
   const activeEntry = metrics.results[activeIndex]
   const activeMatch = activeEntry.match
   const activeGuess = guesses[activeMatch.id]
   const activeResult = activeEntry.result
+  const activeLocked = activeEntry.locked
   const isLast = activeIndex === fixtureOrder.length - 1
-  const allRevealed = metrics.resultsUnlocked
+  const allRevealed = metrics.lockedCount === fixtureOrder.length
+
+  function handleSubmitCurrentFixture() {
+    if (!activeResult.complete || activeLocked) {
+      return
+    }
+
+    setLockedMatches((current) => ({
+      ...current,
+      [activeMatch.id]: true,
+    }))
+
+    if (!isLast) {
+      setActiveIndex((current) => current + 1)
+    }
+  }
 
   useEffect(() => {
     if (allRevealed) {
@@ -298,10 +345,14 @@ export default function App() {
   }, [allRevealed])
 
   useEffect(() => {
+    if (activeLocked) {
+      return
+    }
+
     const target = activeGuess.home === '' ? homeInputRef.current : awayInputRef.current
     target?.focus()
     target?.select?.()
-  }, [activeIndex, activeGuess.home])
+  }, [activeIndex, activeGuess.home, activeLocked])
 
   function handleHomeKeyDown(event) {
     if (event.key === 'ArrowLeft') {
@@ -347,9 +398,7 @@ export default function App() {
       return
     }
 
-    if (!isLast) {
-      setActiveIndex((current) => current + 1)
-    }
+    handleSubmitCurrentFixture()
   }
 
   return (
@@ -360,9 +409,9 @@ export default function App() {
 
       <section className="hero-panel">
         <div className="hero-copy">
-          <h1>World Cup 2026 Score Predictor</h1>
+          <h1>World Cup 2026 Final Score Guess</h1>
         </div>
-        <div className="top-logo" aria-label="World Cup Predictor logo">
+        <div className="top-logo" aria-label="World Cup final score guess logo">
           <span className="logo-ball">O</span>
           <span className="logo-wordmark">WC26</span>
         </div>
@@ -376,14 +425,14 @@ export default function App() {
           </div>
 
           <div className="progress-bar">
-            <span style={{ width: `${(metrics.lockedCount / fixtureOrder.length) * 100}%` }} />
+            <span style={{ width: `${(metrics.completedCount / fixtureOrder.length) * 100}%` }} />
           </div>
 
           <div className="match-dots">
             {metrics.results.map((entry, index) => (
               <button
                 key={entry.match.id}
-                className={`match-dot ${index === activeIndex ? 'active' : ''} ${metrics.resultsUnlocked ? getChartTone(entry.result) : entry.result.complete ? 'filled' : 'idle'}`}
+                className={`match-dot ${index === activeIndex ? 'active' : ''} ${entry.locked ? getChartTone(entry.result) : entry.result.complete ? 'filled' : 'idle'}`}
                 onClick={() => handleJump(index)}
                 aria-label={`Open match ${index + 1}`}
               >
@@ -393,14 +442,14 @@ export default function App() {
             ))}
           </div>
 
-            <div className="rating-card">
+          <div className="rating-card">
             <p className="section-label">Leaderboard Pulse</p>
-            <h3>{metrics.resultsUnlocked ? metrics.rating.title : 'Results locked'}</h3>
+            <h3>{metrics.lockedCount > 0 ? metrics.rating.title : 'Results locked'}</h3>
             <div className="ranking-line">
-              {metrics.resultsUnlocked ? `Top ${100 - metrics.percentile}%` : `${metrics.completedCount}/${fixtureOrder.length} picked`}
+              {metrics.lockedCount > 0 ? `Top ${100 - metrics.percentile}%` : `${metrics.completedCount}/${fixtureOrder.length} guessed`}
             </div>
             <div className="leaderboard-time">Time: {formatElapsedTime(elapsedSeconds)}</div>
-            <p>{metrics.resultsUnlocked ? metrics.rating.note : 'Finish every fixture before the scorecard opens.'}</p>
+            <p>{metrics.lockedCount > 0 ? metrics.rating.note : 'Submit a score guess to start scoring.'}</p>
           </div>
 
           <div className="rules-card">
@@ -418,15 +467,15 @@ export default function App() {
               <p className="section-label">Fixture {activeIndex + 1} of {fixtureOrder.length}</p>
               <h2>Group {activeMatch.group} • {formatDate(activeMatch.date)}</h2>
             </div>
-            <div className={`stage-badge ${metrics.resultsUnlocked ? 'revealed' : 'live'}`}>
-              {metrics.resultsUnlocked ? 'Scorecard Open' : 'Prediction Mode'}
+            <div className={`stage-badge ${activeLocked ? 'revealed' : 'live'}`}>
+              {activeLocked ? 'Locked' : 'Open'}
             </div>
           </div>
 
           <article className="featured-match">
             <div className="fixture-banner">
               <span>FIFA World Cup 26</span>
-              <span>90 minutes • no extra hints</span>
+              <span>Guess the final score and lock it in</span>
             </div>
 
             <div className="team-grid">
@@ -442,7 +491,7 @@ export default function App() {
 
               <div className="versus-core">
                 <div className="versus-ring">FT</div>
-                <span>Predict the full-time score</span>
+                <span>Guess the final score</span>
               </div>
 
               <TeamPanel
@@ -456,7 +505,7 @@ export default function App() {
               />
             </div>
 
-            <ResultPanel match={activeMatch} result={activeResult} locked={metrics.resultsUnlocked} />
+            <ResultPanel match={activeMatch} result={activeResult} locked={activeLocked} />
 
             <div className="keyboard-hint">
               `Enter` saves this fixture. `←` and `→` move between fixtures.
@@ -476,14 +525,25 @@ export default function App() {
                   <strong>Top {100 - metrics.percentile}%</strong>
                 </div>
               </div>
+              <div className="scorecard-actions">
+                <button className="secondary" onClick={handleShareScores}>
+                  Share to social
+                </button>
+                <button className="ghost" onClick={handleReset}>Reset everything</button>
+                <span className="share-status">
+                  {shareState === 'shared' && 'Shared'}
+                  {shareState === 'copied' && 'Copied share text'}
+                  {shareState === 'error' && 'Share failed'}
+                </span>
+              </div>
               <div className="summary-grid">
                 <div>
-                  <span>Entered picks</span>
+                  <span>Scores guessed</span>
                   <strong>{metrics.completedCount}</strong>
                 </div>
                 <div>
                   <span>Scored picks</span>
-                  <strong>{metrics.resultsUnlocked ? fixtureOrder.length : 0}</strong>
+                  <strong>{metrics.lockedCount}</strong>
                 </div>
                 <div>
                   <span>Exact hits</span>
@@ -502,17 +562,6 @@ export default function App() {
                   <strong>{metrics.calls}</strong>
                 </div>
               </div>
-            </div>
-
-            <div className="summary-card finale">
-              <p className="section-label">Final Whistle</p>
-              <h3>{allRevealed ? 'Full card scored' : 'Keep going'}</h3>
-              <p>
-                {allRevealed
-                  ? `Final projection: top ${100 - metrics.percentile}% with ${metrics.score} points in ${formatElapsedTime(elapsedSeconds)}.`
-                  : 'Results stay hidden until every fixture has a saved prediction.'}
-              </p>
-              <button className="ghost" onClick={handleReset}>Reset everything</button>
             </div>
           </section>
         </section>

@@ -563,9 +563,7 @@ button:disabled {
 }
 
 .footer-panels {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  display: block;
 }
 
 .summary-card {
@@ -599,6 +597,19 @@ button:disabled {
   font-size: 2rem;
 }
 
+.scorecard-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.share-status {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .summary-card h3 {
   margin: 10px 0 0;
   font-size: 1.5rem;
@@ -628,15 +639,8 @@ button:disabled {
   font-size: 1.3rem;
 }
 
-.finale {
-  background:
-    linear-gradient(135deg, rgba(255, 209, 102, 0.14), rgba(255, 79, 216, 0.08)),
-    var(--panel);
-}
-
 @media (max-width: 1100px) {
   .experience-layout,
-  .footer-panels,
   .team-grid {
     grid-template-columns: 1fr;
   }
