@@ -364,9 +364,11 @@ function TeamInput({ team, code, value, onChange, onKeyDown, inputRef, disabled 
         aria-label={`${team} score`}
         className="score-box"
         disabled={disabled}
+        autoComplete="off"
+        enterKeyHint="done"
         inputMode="numeric"
         pattern="[0-9]*"
-        type="text"
+        type="tel"
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -547,7 +549,9 @@ function PracticeFace({ card, revealed }) {
 
   return (
     <div className={`practice-face ${revealed ? 'is-back' : 'is-front'}`}>
-      <p className="screen-title">Practice Mode</p>
+      <div className="practice-face-header">
+        <p className="screen-title">Practice Mode</p>
+      </div>
       <div className="practice-matchup">
         <div className="practice-team">
           <span className="practice-flag" aria-hidden="true">{getFlagEmoji(card.homeCode)}</span>
@@ -1094,9 +1098,9 @@ export default function App() {
       <div className="background-wash" />
 
       <header className="game-header">
-        <div>
-          <p className="screen-title">WORLD CUP RECALL</p>
-          <h1 className="hero-title">WORLD CUP RECALL</h1>
+        <div className="header-copy">
+          <h1 className="hero-title">WORLD CUP RECALL 2026</h1>
+          <p className="header-kicker">Host countries: USA, Canada, Mexico</p>
         </div>
         <div className="header-meta">
           <div className="tab-row" role="tablist" aria-label="Game mode">
@@ -1113,6 +1117,9 @@ export default function App() {
       {activeTab === 'play' ? (
         <section className="game-layout">
           <aside className="progress-rail" aria-label="Match progress">
+            <div className="rail-heading">
+              <p className="screen-title">Tournament Ledger</p>
+            </div>
             <div className="progress-copy">
               <span>{metrics.lockedCount} complete</span>
               <strong>{fixtureOrder.length - metrics.lockedCount} left</strong>
