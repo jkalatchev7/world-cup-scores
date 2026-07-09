@@ -55,6 +55,7 @@ button:disabled {
   width: min(1240px, calc(100% - 32px));
   margin: 0 auto;
   padding: 36px 0 48px;
+  overflow-x: clip;
 }
 
 .app-shell-complete {
@@ -166,34 +167,6 @@ button:disabled {
   margin: 0 auto;
 }
 
-.top-ad-slot {
-  margin-top: 20px;
-}
-
-.ad-slot-shell {
-  position: relative;
-  border: 1px solid var(--line);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.03);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
-  padding: 18px;
-  min-height: 120px;
-}
-
-.ad-label {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.ad-slot {
-  min-height: 90px;
-}
-
 .progress-rail {
   padding: 22px 18px;
   border-radius: 24px;
@@ -285,6 +258,7 @@ button:disabled {
   margin: 20px 0 0;
   color: var(--muted);
   line-height: 1.5;
+  font-size: 0.95rem;
 }
 
 .practice-stats-grid {
@@ -534,6 +508,7 @@ button:disabled {
   display: grid;
   gap: 22px;
   justify-items: center;
+  min-width: 0;
 }
 
 .team-nameplate {
@@ -541,6 +516,7 @@ button:disabled {
   gap: 14px;
   justify-items: center;
   text-align: center;
+  min-width: 0;
 }
 
 .team-nameplate h2 {
@@ -549,6 +525,7 @@ button:disabled {
   font-weight: 700;
   line-height: 0.98;
   text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 .team-flag {
@@ -861,6 +838,11 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .game-layout,
+  .practice-shell {
+    gap: 16px;
+  }
+
   .progress-rail {
     order: 2;
   }
@@ -871,6 +853,10 @@ button:disabled {
 
   .fixture-grid {
     grid-template-columns: repeat(11, 1fr);
+  }
+
+  .score-row {
+    gap: 18px;
   }
 
   .match-divider {
@@ -885,66 +871,177 @@ button:disabled {
 
 @media (max-width: 720px) {
   .app-shell {
-    width: calc(100% - 18px);
-    padding: 18px 0 28px;
+    width: calc(100% - 16px);
+    padding: 12px 0 22px;
   }
 
   .game-header,
   .progress-rail,
   .match-card,
   .completion-screen {
-    padding: 22px;
-    border-radius: 24px;
+    padding: 18px;
+    border-radius: 22px;
   }
 
   .game-header {
     align-items: flex-start;
     flex-direction: column;
+    gap: 14px;
   }
 
   .header-meta {
     justify-items: start;
     width: 100%;
+    gap: 10px;
   }
 
   .tab-row {
     width: 100%;
+    gap: 6px;
+    padding: 5px;
   }
 
   .tab-button {
     flex: 1;
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 0.9rem;
   }
 
   .hero-title {
-    font-size: clamp(1.8rem, 10vw, 2.7rem);
+    margin-top: 8px;
+    font-size: clamp(1.7rem, 10vw, 2.5rem);
+    line-height: 0.96;
+  }
+
+  .match-counter {
+    font-size: 1rem;
   }
 
   .practice-flip-card,
   .practice-flip-inner {
-    min-height: 420px;
+    min-height: 360px;
   }
 
   .practice-face {
-    padding: 24px;
-    gap: 22px;
+    padding: 20px;
+    gap: 18px;
   }
 
   .practice-stats-grid {
     grid-template-columns: 1fr;
   }
 
+  .practice-team strong {
+    font-size: clamp(1.55rem, 8vw, 2.35rem);
+  }
+
+  .practice-meta {
+    font-size: 0.8rem;
+  }
+
+  .practice-note {
+    margin-top: 14px;
+    font-size: 0.9rem;
+  }
+
+  .match-card {
+    padding: 22px 16px;
+  }
+
+  .match-card.is-revealing {
+    padding: 22px 16px;
+  }
+
+  .match-stage-label {
+    margin-bottom: 18px;
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+  }
+
+  .score-row {
+    gap: 16px;
+  }
+
+  .team-block {
+    width: 100%;
+    gap: 16px;
+  }
+
+  .team-nameplate {
+    gap: 10px;
+  }
+
   .team-nameplate h2 {
-    font-size: clamp(1.8rem, 10vw, 3rem);
+    font-size: clamp(1.45rem, 8.8vw, 2.25rem);
   }
 
   .score-box {
     width: 100%;
-    height: 108px;
-    font-size: 3.4rem;
+    max-width: 180px;
+    height: 86px;
+    border-radius: 22px;
+    font-size: 2.8rem;
+  }
+
+  .match-divider {
+    width: 72px;
+    height: 72px;
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+  }
+
+  .submit-button {
+    width: 100%;
+    margin-top: 24px;
+    min-width: 0;
+  }
+
+  .reveal-card h1 {
+    font-size: clamp(1.7rem, 8.5vw, 2.5rem);
+  }
+
+  .reveal-card strong {
+    font-size: 1.5rem;
+  }
+
+  .completion-screen h1 {
+    font-size: clamp(2.4rem, 14vw, 4rem);
+  }
+
+  .completion-grid {
+    gap: 10px;
+    margin-top: 22px;
+  }
+
+  .completion-grid div,
+  .leaderboard-save,
+  .leaderboard-list {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .leaderboard-copy h3 {
+    font-size: 1.25rem;
+  }
+
+  .leaderboard-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    justify-items: start;
+    padding: 12px 0;
+  }
+
+  .leaderboard-score {
+    width: 100%;
+    grid-auto-flow: column;
+    justify-content: space-between;
+    align-items: baseline;
   }
 
   .completion-actions {
     flex-direction: column;
+    gap: 10px;
   }
 
   .primary-button,
@@ -952,9 +1049,112 @@ button:disabled {
   .practice-actions .primary-button,
   .practice-actions .secondary-button {
     width: 100%;
+    min-height: 48px;
+    padding: 14px 20px;
   }
 
   .fixture-grid {
     grid-template-columns: repeat(8, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .app-shell {
+    width: calc(100% - 12px);
+    padding-top: 8px;
+  }
+
+  .game-layout,
+  .practice-shell,
+  .leaderboard-screen {
+    margin-top: 14px;
+  }
+
+  .game-header,
+  .progress-rail,
+  .match-card,
+  .completion-screen {
+    padding: 16px 14px;
+    border-radius: 20px;
+  }
+
+  .screen-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+  }
+
+  .hero-title {
+    font-size: clamp(1.55rem, 10vw, 2rem);
+  }
+
+  .progress-copy strong {
+    font-size: 1rem;
+  }
+
+  .fixture-grid {
+    gap: 6px;
+    margin-top: 18px;
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .fixture-cell {
+    border-radius: 5px;
+  }
+
+  .practice-flip-card,
+  .practice-flip-inner {
+    min-height: 320px;
+  }
+
+  .practice-face {
+    padding: 18px 16px;
+  }
+
+  .practice-matchup {
+    gap: 12px;
+  }
+
+  .practice-flag {
+    font-size: 2rem;
+  }
+
+  .practice-versus.is-score {
+    font-size: clamp(1.8rem, 10vw, 2.7rem);
+  }
+
+  .match-stage-label {
+    margin-bottom: 14px;
+  }
+
+  .score-row {
+    gap: 14px;
+  }
+
+  .team-flag {
+    font-size: 1.7rem;
+  }
+
+  .team-nameplate h2 {
+    font-size: clamp(1.25rem, 8vw, 1.8rem);
+  }
+
+  .score-box {
+    max-width: 152px;
+    height: 76px;
+    font-size: 2.35rem;
+  }
+
+  .match-divider {
+    width: 62px;
+    height: 62px;
+    font-size: 0.88rem;
+  }
+
+  .completion-note,
+  .leaderboard-copy p,
+  .leaderboard-empty,
+  .leaderboard-feedback,
+  .share-feedback {
+    font-size: 0.92rem;
   }
 }

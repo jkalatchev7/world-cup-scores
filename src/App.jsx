@@ -4,8 +4,6 @@ import { useLeaderboard } from './useLeaderboard'
 
 const STORAGE_KEY = 'world-cup-recall-progress-v1'
 const PRACTICE_STORAGE_KEY = 'world-cup-recall-practice-v1'
-const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT
-const ADSENSE_SLOT = import.meta.env.VITE_ADSENSE_SLOT
 
 const flagOverrides = {
   // Subdivision flags need Unicode tag sequences instead of ISO alpha-2 pairs.
@@ -377,56 +375,6 @@ function TeamInput({ team, code, value, onChange, onKeyDown, inputRef, disabled 
   )
 }
 
-function AdSlot({ client, slot, className = '' }) {
-  useEffect(() => {
-    if (!client || !slot || typeof window === 'undefined') {
-      return
-    }
-
-    const existingScript = document.querySelector('script[data-adsense-script="true"]')
-
-    if (!existingScript) {
-      const script = document.createElement('script')
-      script.async = true
-      script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`
-      script.crossOrigin = 'anonymous'
-      script.dataset.adsenseScript = 'true'
-      document.head.appendChild(script)
-    }
-  }, [client, slot])
-
-  useEffect(() => {
-    if (!client || !slot || typeof window === 'undefined') {
-      return
-    }
-
-    try {
-      window.adsbygoogle = window.adsbygoogle || []
-      window.adsbygoogle.push({})
-    } catch {
-      // AdSense can fail silently on localhost or unapproved domains.
-    }
-  }, [client, slot])
-
-  if (!client || !slot) {
-    return null
-  }
-
-  return (
-    <div className={`ad-slot-shell ${className}`.trim()}>
-      <p className="ad-label">Sponsored</p>
-      <ins
-        className="adsbygoogle ad-slot"
-        style={{ display: 'block' }}
-        data-ad-client={client}
-        data-ad-slot={slot}
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  )
-}
-
 function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) {
   return {
     game: 'World Cup Recall',
@@ -456,15 +404,8 @@ function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) 
   }
 }
 
-function maskEmail(email) {
-  const [name, domain] = email.split('@')
-
-  if (!name || !domain) {
-    return email
-  }
-
-  const visibleName = name.length <= 2 ? `${name[0] ?? ''}*` : `${name.slice(0, 2)}${'*'.repeat(Math.max(1, name.length - 2))}`
-  return `${visibleName}@${domain}`
+function formatAttemptsLabel(attempts) {
+  return `${attempts} attempt${attempts === 1 ? '' : 's'}`
 }
 
 function CompletionScreen({
@@ -523,7 +464,7 @@ function CompletionScreen({
           <div className="leaderboard-copy">
             <p className="screen-title">Save Score</p>
             <h3>Join the leaderboard</h3>
-            <p>Ranked by score first, then fastest time as the tiebreaker.</p>
+            <p>Ranked by score first, then fastest time as the tiebreaker. Email is used privately and not shown.</p>
           </div>
 
           <div className="leaderboard-form">
@@ -568,7 +509,7 @@ function CompletionScreen({
                   <span className="leaderboard-rank">#{index + 1}</span>
                   <div className="leaderboard-person">
                     <strong>{entry.name}</strong>
-                    <span>{maskEmail(entry.email)}</span>
+                    <span>{formatAttemptsLabel(entry.attempts ?? 1)}</span>
                   </div>
                   <div className="leaderboard-score">
                     <strong>{entry.points} pts</strong>
@@ -765,7 +706,7 @@ function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
                 <span className="leaderboard-rank">#{index + 1}</span>
                 <div className="leaderboard-person">
                   <strong>{entry.name}</strong>
-                  <span>{maskEmail(entry.email)}</span>
+                  <span>{formatAttemptsLabel(entry.attempts ?? 1)}</span>
                 </div>
                 <div className="leaderboard-score">
                   <strong>{entry.points} pts</strong>
@@ -1168,8 +1109,6 @@ export default function App() {
           </p>
         </div>
       </header>
-
-      <AdSlot client={ADSENSE_CLIENT} slot={ADSENSE_SLOT} className="top-ad-slot" />
 
       {activeTab === 'play' ? (
         <section className="game-layout">

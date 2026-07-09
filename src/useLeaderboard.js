@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
+function compareLeaderboardEntries(left, right) {
+  if (right.points !== left.points) {
+    return right.points - left.points
+  }
+  if (left.elapsedSeconds !== right.elapsedSeconds) {
+    return left.elapsedSeconds - right.elapsedSeconds
+  }
+  return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+}
+
 function rankLeaderboard(entries) {
   return [...entries]
-    .sort((left, right) => {
-      if (right.points !== left.points) {
-        return right.points - left.points
-      }
-      if (left.elapsedSeconds !== right.elapsedSeconds) {
-        return left.elapsedSeconds - right.elapsedSeconds
-      }
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-    })
+    .sort(compareLeaderboardEntries)
     .slice(0, 25)
 }
 
@@ -28,6 +30,31 @@ function mapLeaderboardRow(row) {
   }
 }
 
+function mergeLeaderboardEntries(rows) {
+  const groupedEntries = new Map()
+
+  rows.forEach((row) => {
+    const key = row.email.trim().toLowerCase()
+    const current = groupedEntries.get(key)
+
+    if (!current) {
+      groupedEntries.set(key, {
+        ...row,
+        attempts: 1,
+      })
+      return
+    }
+
+    const bestEntry = compareLeaderboardEntries(row, current) < 0 ? row : current
+    groupedEntries.set(key, {
+      ...bestEntry,
+      attempts: current.attempts + 1,
+    })
+  })
+
+  return Array.from(groupedEntries.values())
+}
+
 export function useLeaderboard() {
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderboardForm, setLeaderboardForm] = useState({ name: '', email: '' })
@@ -40,13 +67,12 @@ export function useLeaderboard() {
       .order('points', { ascending: false })
       .order('elapsed_seconds', { ascending: true })
       .order('created_at', { ascending: false })
-      .limit(25)
 
     if (error || !data) {
       throw error ?? new Error('Could not load leaderboard')
     }
 
-    setLeaderboard(rankLeaderboard(data.map(mapLeaderboardRow)))
+    setLeaderboard(rankLeaderboard(mergeLeaderboardEntries(data.map(mapLeaderboardRow))))
   }
 
   async function saveLeaderboardEntry(entry) {
