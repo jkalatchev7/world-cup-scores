@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { matches } from './data'
+import { useLeaderboard } from './useLeaderboard'
 
 const STORAGE_KEY = 'world-cup-recall-progress-v1'
+const PRACTICE_STORAGE_KEY = 'world-cup-recall-practice-v1'
 const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT
 const ADSENSE_SLOT = import.meta.env.VITE_ADSENSE_SLOT
 
 const flagOverrides = {
-  'GB-ENG': '🏴',
-  'GB-SCT': '🏴',
+  // Subdivision flags need Unicode tag sequences instead of ISO alpha-2 pairs.
+  'GB-ENG': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  'GB-SCT': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
 }
 
 const tiers = [
@@ -112,6 +115,17 @@ function formatMatchStage(group) {
   return group.length === 1 ? `Group ${group}` : group
 }
 
+function getPracticeStageLabel(card) {
+  return card.group.length === 1 ? 'Group Stage' : card.group
+}
+
+function getPracticeMeta(card) {
+  const year = card.date ? new Date(card.date).getUTCFullYear() : null
+  const stage = getPracticeStageLabel(card)
+
+  return year ? `${year} ${stage}` : stage
+}
+
 function getProgressTone(entry, index, activeIndex) {
   if (index === activeIndex) {
     return 'current'
@@ -183,6 +197,19 @@ function createDefaultGameState() {
   }
 }
 
+function restorePracticeState() {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PRACTICE_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
 function restoreGameState() {
   const fallback = createDefaultGameState()
 
@@ -246,6 +273,85 @@ function restoreGameState() {
   } catch {
     return fallback
   }
+}
+
+function getWeaknessWeight(result) {
+  if (!result.complete) {
+    return 5
+  }
+  if (result.exact) {
+    return 1
+  }
+  if (result.outcome) {
+    return 3
+  }
+  if (result.points > 0) {
+    return 4
+  }
+  return 5
+}
+
+function getInitialPracticeCard(result) {
+  return {
+    interval: 0,
+    ease: 2.5,
+    dueStep: 0,
+    reviews: 0,
+    retired: false,
+    lapses: result.exact ? 0 : 1,
+    lastRating: result.complete && result.exact ? 'good' : 'again',
+    lastScore: result.points,
+    weakness: getWeaknessWeight(result),
+  }
+}
+
+function applyPracticeRating(card, rating, result) {
+  const next = {
+    ...card,
+    reviews: (card.reviews ?? 0) + 1,
+    lastRating: rating,
+    lastScore: result.points,
+  }
+
+  if (rating === 'again') {
+    next.interval = 0
+    next.dueStep = (card.dueStep ?? 0) + 1
+    next.ease = Math.max(1.4, (card.ease ?? 2.5) - 0.2)
+    next.lapses = (card.lapses ?? 0) + 1
+    next.retired = false
+    next.weakness = Math.min(6, Math.max(getWeaknessWeight(result), (card.weakness ?? 0) + 1))
+    return next
+  }
+
+  if (rating === 'hard') {
+    next.interval = Math.max(1, Math.round(Math.max(1, card.interval ?? 1) * 1.2))
+    next.dueStep = (card.dueStep ?? 0) + 3
+    next.ease = Math.max(1.5, (card.ease ?? 2.5) - 0.15)
+    next.lapses = card.lapses ?? 0
+    next.retired = false
+    next.weakness = Math.max(2, (card.weakness ?? getWeaknessWeight(result)) - 1)
+    return next
+  }
+
+  if (rating === 'easy') {
+    const base = card.interval && card.interval > 0 ? card.interval : 2
+    next.interval = Math.round(base * Math.max(2.2, (card.ease ?? 2.5) + 0.3))
+    next.dueStep = (card.dueStep ?? 0) + 999
+    next.ease = Math.min(3.4, (card.ease ?? 2.5) + 0.15)
+    next.lapses = card.lapses ?? 0
+    next.retired = true
+    next.weakness = Math.max(1, (card.weakness ?? getWeaknessWeight(result)) - 2)
+    return next
+  }
+
+  const base = card.interval && card.interval > 0 ? card.interval : 1
+  next.interval = Math.round(base * Math.max(1.8, card.ease ?? 2.5))
+  next.dueStep = (card.dueStep ?? 0) + 6
+  next.ease = card.ease ?? 2.5
+  next.lapses = card.lapses ?? 0
+  next.retired = false
+  next.weakness = Math.max(1, (card.weakness ?? getWeaknessWeight(result)) - 1)
+  return next
 }
 
 function TeamInput({ team, code, value, onChange, onKeyDown, inputRef, disabled }) {
@@ -350,7 +456,31 @@ function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) 
   }
 }
 
-function CompletionScreen({ metrics, elapsedSeconds, onReset, onShare, onExport, shareState, exportState }) {
+function maskEmail(email) {
+  const [name, domain] = email.split('@')
+
+  if (!name || !domain) {
+    return email
+  }
+
+  const visibleName = name.length <= 2 ? `${name[0] ?? ''}*` : `${name.slice(0, 2)}${'*'.repeat(Math.max(1, name.length - 2))}`
+  return `${visibleName}@${domain}`
+}
+
+function CompletionScreen({
+  metrics,
+  elapsedSeconds,
+  onReset,
+  onShare,
+  onExport,
+  shareState,
+  exportState,
+  leaderboard,
+  leaderboardForm,
+  leaderboardState,
+  onLeaderboardChange,
+  onSaveLeaderboard,
+}) {
   return (
     <section className="completion-screen">
       <p className="screen-title">WORLD CUP RECALL</p>
@@ -388,6 +518,71 @@ function CompletionScreen({ metrics, elapsedSeconds, onReset, onShare, onExport,
 
       <p className="completion-note">{metrics.rating.note}</p>
 
+      <section className="leaderboard-panel">
+        <div className="leaderboard-save">
+          <div className="leaderboard-copy">
+            <p className="screen-title">Save Score</p>
+            <h3>Join the leaderboard</h3>
+            <p>Ranked by score first, then fastest time as the tiebreaker.</p>
+          </div>
+
+          <div className="leaderboard-form">
+            <input
+              aria-label="Name"
+              className="leaderboard-input"
+              name="name"
+              placeholder="Name"
+              type="text"
+              value={leaderboardForm.name}
+              onChange={onLeaderboardChange}
+            />
+            <input
+              aria-label="Email"
+              className="leaderboard-input"
+              name="email"
+              placeholder="Email"
+              type="email"
+              value={leaderboardForm.email}
+              onChange={onLeaderboardChange}
+            />
+            <button className="primary-button leaderboard-button" onClick={onSaveLeaderboard}>Save Score</button>
+          </div>
+          <p className="leaderboard-feedback">
+            {leaderboardState === 'saved' && 'Score saved to leaderboard'}
+            {leaderboardState === 'invalid' && 'Enter a valid name and email'}
+            {leaderboardState === 'error' && 'Could not save leaderboard entry'}
+          </p>
+        </div>
+
+        <div className="leaderboard-list">
+          <div className="leaderboard-copy">
+            <p className="screen-title">Leaderboard</p>
+            <h3>Top scores</h3>
+            <p>Higher score wins. Matching scores are ordered by faster time.</p>
+          </div>
+
+          {leaderboard.length > 0 ? (
+            <div className="leaderboard-rows">
+              {leaderboard.map((entry, index) => (
+                <div className="leaderboard-row" key={`${entry.email}-${entry.createdAt}`}>
+                  <span className="leaderboard-rank">#{index + 1}</span>
+                  <div className="leaderboard-person">
+                    <strong>{entry.name}</strong>
+                    <span>{maskEmail(entry.email)}</span>
+                  </div>
+                  <div className="leaderboard-score">
+                    <strong>{entry.points} pts</strong>
+                    <span>{formatElapsedTime(entry.elapsedSeconds)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="leaderboard-empty">No saved scores yet.</p>
+          )}
+        </div>
+      </section>
+
       <div className="completion-actions">
         <button className="primary-button" onClick={onReset}>Play Again</button>
         <button className="secondary-button" onClick={onShare}>Share Results</button>
@@ -405,18 +600,218 @@ function CompletionScreen({ metrics, elapsedSeconds, onReset, onShare, onExport,
   )
 }
 
+function PracticeFace({ card, revealed }) {
+  const hiddenScore = `${card.homeScore} - ${card.awayScore}`
+  const metaLabel = getPracticeMeta(card)
+
+  return (
+    <div className={`practice-face ${revealed ? 'is-back' : 'is-front'}`}>
+      <p className="screen-title">Practice Mode</p>
+      <div className="practice-matchup">
+        <div className="practice-team">
+          <span className="practice-flag" aria-hidden="true">{getFlagEmoji(card.homeCode)}</span>
+          <strong>{card.homeTeam}</strong>
+        </div>
+        <span className={`practice-versus ${revealed ? 'is-score' : ''}`}>{revealed ? hiddenScore : 'vs'}</span>
+        <div className="practice-team">
+          <span className="practice-flag" aria-hidden="true">{getFlagEmoji(card.awayCode)}</span>
+          <strong>{card.awayTeam}</strong>
+        </div>
+      </div>
+      <div className="practice-meta-block">
+        <p className="practice-meta">{metaLabel}</p>
+        <p className="practice-meta practice-meta-score">
+          {revealed ? `Final score: ${hiddenScore}` : 'Final score hidden'}
+        </p>
+      </div>
+      <p>{revealed ? `Your original result: ${card.resultLabel}` : 'Click to reveal score.'}</p>
+    </div>
+  )
+}
+
+function PracticeScreen({
+  card,
+  totalCount,
+  learnedCount,
+  weakCount,
+  onFlip,
+  onRate,
+  showingAnswer,
+  selectedRatingIndex,
+  onSelectRatingIndex,
+  onRatingKeyDown,
+  onJumpToPlay,
+}) {
+  const ratingOptions = [
+    { id: 'again', label: 'Again', tone: 'secondary-button' },
+    { id: 'hard', label: 'Hard', tone: 'secondary-button' },
+    { id: 'good', label: 'Good', tone: 'primary-button' },
+    { id: 'easy', label: 'Easy', tone: 'primary-button' },
+  ]
+  const weakPercent = totalCount ? (weakCount / totalCount) * 100 : 0
+  const stabilizedPercent = totalCount ? (learnedCount / totalCount) * 100 : 0
+  const activePercent = totalCount ? ((totalCount - weakCount - learnedCount) / totalCount) * 100 : 0
+
+  if (!card) {
+    return (
+      <section className="practice-shell">
+        <article className="match-card practice-card">
+          <div className="practice-empty">
+            <p className="screen-title">Practice Mode</p>
+            <h2>No weak matches yet</h2>
+            <p>Play through matches first. Misses and near-misses will show up here for review.</p>
+            <button className="primary-button" onClick={onJumpToPlay}>Go To Play</button>
+          </div>
+        </article>
+      </section>
+    )
+  }
+
+  return (
+    <section className="practice-shell">
+      <aside className="progress-rail practice-rail">
+        <div className="practice-stats-grid">
+          <div className="practice-stat-card">
+            <div className="progress-copy">
+              <span>Total cards</span>
+              <strong>{totalCount}</strong>
+            </div>
+            <div className="practice-stat-bar is-neutral" aria-hidden="true">
+              <span style={{ width: '100%' }} />
+            </div>
+          </div>
+          <div className="practice-stat-card is-weak">
+            <div className="progress-copy">
+              <span>Weak cards</span>
+              <strong>{weakCount}</strong>
+            </div>
+            <div className="practice-stat-bar is-weak" aria-hidden="true">
+              <span style={{ width: `${weakPercent}%` }} />
+            </div>
+          </div>
+          <div className="practice-stat-card is-active">
+            <div className="progress-copy">
+              <span>In rotation</span>
+              <strong>{Math.max(0, totalCount - weakCount - learnedCount)}</strong>
+            </div>
+            <div className="practice-stat-bar is-active" aria-hidden="true">
+              <span style={{ width: `${activePercent}%` }} />
+            </div>
+          </div>
+          <div className="practice-stat-card is-stable">
+            <div className="progress-copy">
+              <span>Stabilized</span>
+              <strong>{learnedCount}</strong>
+            </div>
+            <div className="practice-stat-bar is-stable" aria-hidden="true">
+              <span style={{ width: `${stabilizedPercent}%` }} />
+            </div>
+          </div>
+        </div>
+        <p className="practice-note">Reveal the score, then grade how hard it was to remember.</p>
+      </aside>
+
+      <article className="match-card practice-card">
+        <button
+          className={`practice-flip-card ${showingAnswer ? 'is-flipped' : ''}`}
+          type="button"
+          onClick={onFlip}
+          aria-label={showingAnswer ? 'Flip card to hide answer' : 'Flip card to reveal answer'}
+        >
+          <div className="practice-flip-inner">
+            <PracticeFace card={card} revealed={false} />
+            <PracticeFace card={card} revealed />
+          </div>
+        </button>
+
+        <div
+          className={`practice-actions ${showingAnswer ? 'is-visible' : ''}`}
+          onKeyDown={onRatingKeyDown}
+          role="toolbar"
+          aria-label="Practice difficulty"
+        >
+          {ratingOptions.map((option, index) => (
+            <button
+              key={option.id}
+              className={`${option.tone} ${selectedRatingIndex === index ? 'is-selected' : ''}`.trim()}
+              disabled={!showingAnswer}
+              tabIndex={showingAnswer && selectedRatingIndex === index ? 0 : -1}
+              onClick={() => onRate(option.id)}
+              onFocus={() => onSelectRatingIndex(index)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </article>
+    </section>
+  )
+}
+
+function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
+  return (
+    <section className="leaderboard-screen">
+      <article className="completion-screen leaderboard-screen-card">
+        <div className="leaderboard-copy">
+          <p className="screen-title">Leaderboard</p>
+          <h2>Top scores</h2>
+          <p>Higher score wins. Matching scores are ordered by faster time.</p>
+        </div>
+
+        {leaderboard.length > 0 ? (
+          <div className="leaderboard-rows">
+            {leaderboard.map((entry, index) => (
+              <div className="leaderboard-row" key={`${entry.email}-${entry.createdAt}`}>
+                <span className="leaderboard-rank">#{index + 1}</span>
+                <div className="leaderboard-person">
+                  <strong>{entry.name}</strong>
+                  <span>{maskEmail(entry.email)}</span>
+                </div>
+                <div className="leaderboard-score">
+                  <strong>{entry.points} pts</strong>
+                  <span>{formatElapsedTime(entry.elapsedSeconds)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="leaderboard-empty">No saved scores yet.</p>
+        )}
+
+        <div className="completion-actions">
+          <button className="primary-button" onClick={onJumpToPlay}>Back To Play</button>
+        </div>
+      </article>
+    </section>
+  )
+}
+
 export default function App() {
   const [initialState] = useState(() => restoreGameState())
+  const [initialPracticeState] = useState(() => restorePracticeState())
   const [fixtureOrder, setFixtureOrder] = useState(initialState.fixtureOrder)
   const [guesses, setGuesses] = useState(initialState.guesses)
   const [lockedMatches, setLockedMatches] = useState(initialState.lockedMatches)
   const [activeIndex, setActiveIndex] = useState(initialState.activeIndex)
   const [elapsedSeconds, setElapsedSeconds] = useState(initialState.elapsedSeconds)
+  const [activeTab, setActiveTab] = useState('play')
+  const [practiceCards, setPracticeCards] = useState(initialPracticeState)
+  const [practiceStep, setPracticeStep] = useState(0)
+  const [practiceRevealId, setPracticeRevealId] = useState(null)
+  const [selectedRatingIndex, setSelectedRatingIndex] = useState(2)
   const [shareState, setShareState] = useState('idle')
   const [exportState, setExportState] = useState('idle')
   const [revealMatchId, setRevealMatchId] = useState(null)
   const homeInputRef = useRef(null)
   const awayInputRef = useRef(null)
+  const {
+    leaderboard,
+    leaderboardForm,
+    leaderboardState,
+    setLeaderboardState,
+    handleLeaderboardChange,
+    saveLeaderboardEntry,
+  } = useLeaderboard()
 
   function handleChange(matchId, side, value) {
     if (lockedMatches[matchId]) {
@@ -440,6 +835,9 @@ export default function App() {
     setLockedMatches(nextState.lockedMatches)
     setActiveIndex(nextState.activeIndex)
     setElapsedSeconds(nextState.elapsedSeconds)
+    setActiveTab('play')
+    setPracticeStep(0)
+    setLeaderboardState('idle')
     setShareState('idle')
     setExportState('idle')
     setRevealMatchId(null)
@@ -484,8 +882,48 @@ export default function App() {
     ? null
     : metrics.results.find((entry) => entry.match.id === revealMatchId) ?? null
   const allRevealed = metrics.lockedCount === fixtureOrder.length
-  const showCompletion = allRevealed && revealEntry === null
+  const showCompletion = activeTab === 'play' && allRevealed && revealEntry === null
   const progressPercent = (metrics.lockedCount / fixtureOrder.length) * 100
+
+  const practiceDeck = useMemo(() => {
+    return metrics.results
+      .map(({ match, result, locked }) => {
+        const savedCard = practiceCards[match.id] ?? getInitialPracticeCard(result)
+        return {
+          id: match.id,
+          ...match,
+          card: savedCard,
+          weakness: Math.max(savedCard.weakness ?? 0, getWeaknessWeight(result)),
+          resultLabel: !locked
+            ? 'Not answered yet'
+            : result.exact
+              ? 'Exact score'
+              : result.outcome
+                ? 'Correct winner only'
+                : result.points > 0
+                  ? 'Close miss'
+                  : 'Missed outright',
+        }
+      })
+      .sort((left, right) => {
+        if ((left.card.dueStep ?? 0) !== (right.card.dueStep ?? 0)) {
+          return (left.card.dueStep ?? 0) - (right.card.dueStep ?? 0)
+        }
+        if (right.weakness !== left.weakness) {
+          return right.weakness - left.weakness
+        }
+        if ((left.card.interval ?? 0) !== (right.card.interval ?? 0)) {
+          return (left.card.interval ?? 0) - (right.card.interval ?? 0)
+        }
+        return (right.card.lapses ?? 0) - (left.card.lapses ?? 0)
+      })
+  }, [metrics.results, practiceCards])
+
+  const activePracticeDeck = practiceDeck.filter((entry) => !entry.card.retired)
+  const practiceCard = activePracticeDeck.find((entry) => (entry.card.dueStep ?? 0) <= practiceStep) ?? activePracticeDeck[0] ?? null
+  const practiceShowingAnswer = practiceRevealId === practiceCard?.id
+  const weakPracticeCount = activePracticeDeck.filter((entry) => entry.weakness >= 3).length
+  const learnedPracticeCount = practiceDeck.length - activePracticeDeck.length
 
   async function handleShareScores() {
     setExportState('idle')
@@ -534,6 +972,18 @@ export default function App() {
     }
   }
 
+  async function handleSaveLeaderboard() {
+    await saveLeaderboardEntry({
+      name: leaderboardForm.name,
+      email: leaderboardForm.email,
+      points: metrics.score,
+      elapsed_seconds: elapsedSeconds,
+      exact: metrics.exact,
+      calls: metrics.calls,
+      rating: metrics.rating.title,
+    })
+  }
+
   function handleSubmitCurrentFixture() {
     if (!activeResult.complete || activeLocked || revealMatchId !== null) {
       return
@@ -543,7 +993,53 @@ export default function App() {
       ...current,
       [activeMatch.id]: true,
     }))
+    setPracticeCards((current) => ({
+      ...current,
+      [activeMatch.id]: current[activeMatch.id] ?? getInitialPracticeCard(activeResult),
+    }))
     setRevealMatchId(activeMatch.id)
+  }
+
+  function handlePracticeRating(rating) {
+    if (!practiceCard) {
+      return
+    }
+
+    const result = metrics.results.find((entry) => entry.match.id === practiceCard.id)?.result
+    if (!result) {
+      return
+    }
+
+    setPracticeCards((current) => ({
+      ...current,
+      [practiceCard.id]: applyPracticeRating(current[practiceCard.id] ?? getInitialPracticeCard(result), rating, result),
+    }))
+    setSelectedRatingIndex(2)
+    setPracticeStep((current) => current + 1)
+    setPracticeRevealId(null)
+  }
+
+  function handlePracticeRatingKeyDown(event) {
+    if (!practiceShowingAnswer) {
+      return
+    }
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSelectedRatingIndex((current) => (current + 1) % 4)
+      return
+    }
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelectedRatingIndex((current) => (current + 3) % 4)
+      return
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handlePracticeRating(['again', 'hard', 'good', 'easy'][selectedRatingIndex])
+    }
   }
 
   useEffect(() => {
@@ -569,6 +1065,10 @@ export default function App() {
   }, [activeIndex, elapsedSeconds, fixtureOrder, guesses, lockedMatches])
 
   useEffect(() => {
+    window.localStorage.setItem(PRACTICE_STORAGE_KEY, JSON.stringify(practiceCards))
+  }, [practiceCards])
+
+  useEffect(() => {
     if (revealEntry === null) {
       return undefined
     }
@@ -585,14 +1085,20 @@ export default function App() {
   }, [fixtureOrder.length, metrics.results, revealEntry])
 
   useEffect(() => {
-    if (revealEntry || activeLocked) {
+    if (activeTab !== 'play' || revealEntry || activeLocked) {
       return
     }
 
     const target = activeGuess.home === '' ? homeInputRef.current : awayInputRef.current
     target?.focus()
     target?.select?.()
-  }, [activeGuess.home, activeLocked, activeIndex, revealEntry])
+  }, [activeGuess.home, activeLocked, activeIndex, activeTab, revealEntry])
+
+  useEffect(() => {
+    if (!practiceShowingAnswer) {
+      setSelectedRatingIndex(2)
+    }
+  }, [practiceCard?.id, practiceShowingAnswer])
 
   function handleHomeKeyDown(event) {
     if (event.key !== 'Enter') {
@@ -613,10 +1119,17 @@ export default function App() {
     handleSubmitCurrentFixture()
   }
 
+  const revealCopy = revealEntry ? getRevealCopy(revealEntry.result) : null
+
   if (showCompletion) {
     return (
       <main className="app-shell app-shell-complete">
         <div className="background-wash" />
+        <div className="tab-row tab-row-floating">
+          <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('play')}>Play</button>
+          <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('practice')}>Practice</button>
+          <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('leaderboard')}>Leaderboard</button>
+        </div>
         <CompletionScreen
           metrics={metrics}
           elapsedSeconds={elapsedSeconds}
@@ -625,12 +1138,15 @@ export default function App() {
           onExport={handleExportResults}
           shareState={shareState}
           exportState={exportState}
+          leaderboard={leaderboard}
+          leaderboardForm={leaderboardForm}
+          leaderboardState={leaderboardState}
+          onLeaderboardChange={handleLeaderboardChange}
+          onSaveLeaderboard={handleSaveLeaderboard}
         />
       </main>
     )
   }
-
-  const revealCopy = revealEntry ? getRevealCopy(revealEntry.result) : null
 
   return (
     <main className="app-shell">
@@ -641,79 +1157,109 @@ export default function App() {
           <p className="screen-title">WORLD CUP RECALL</p>
           <h1 className="hero-title">WORLD CUP RECALL</h1>
         </div>
-        <p className="match-counter">Match {activeIndex + 1} / {fixtureOrder.length}</p>
+        <div className="header-meta">
+          <div className="tab-row" role="tablist" aria-label="Game mode">
+            <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('play')}>Play</button>
+            <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('practice')}>Practice</button>
+            <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('leaderboard')}>Leaderboard</button>
+          </div>
+          <p className="match-counter">
+            {activeTab === 'play' ? `Match ${activeIndex + 1} / ${fixtureOrder.length}` : activeTab === 'practice' ? `${weakPracticeCount} weak cards` : `${leaderboard.length} saved scores`}
+          </p>
+        </div>
       </header>
 
       <AdSlot client={ADSENSE_CLIENT} slot={ADSENSE_SLOT} className="top-ad-slot" />
 
-      <section className="game-layout">
-        <aside className="progress-rail" aria-label="Match progress">
-          <div className="progress-copy">
-            <span>{metrics.lockedCount} complete</span>
-            <strong>{fixtureOrder.length - metrics.lockedCount} left</strong>
-          </div>
+      {activeTab === 'play' ? (
+        <section className="game-layout">
+          <aside className="progress-rail" aria-label="Match progress">
+            <div className="progress-copy">
+              <span>{metrics.lockedCount} complete</span>
+              <strong>{fixtureOrder.length - metrics.lockedCount} left</strong>
+            </div>
 
-          <div className="progress-bar" aria-hidden="true">
-            <span style={{ width: `${progressPercent}%` }} />
-          </div>
+            <div className="progress-bar" aria-hidden="true">
+              <span style={{ width: `${progressPercent}%` }} />
+            </div>
 
-          <div className="fixture-grid" aria-hidden="true">
-            {metrics.results.map((entry, index) => (
-              <span
-                key={entry.match.id}
-                className={`fixture-cell ${getProgressTone(entry, index, activeIndex)}`}
-              />
-            ))}
-          </div>
-        </aside>
+            <div className="fixture-grid" aria-hidden="true">
+              {metrics.results.map((entry, index) => (
+                <span
+                  key={entry.match.id}
+                  className={`fixture-cell ${getProgressTone(entry, index, activeIndex)}`}
+                />
+              ))}
+            </div>
+          </aside>
 
-        <section className="match-stage">
-          <article className={`match-card ${revealEntry ? 'is-revealing' : ''}`}>
-            {revealEntry ? (
-              <div className={`reveal-card ${revealCopy.tone}`}>
-                <p>{revealCopy.title}</p>
-                <h1>{revealEntry.match.homeTeam} {revealEntry.match.homeScore} - {revealEntry.match.awayScore} {revealEntry.match.awayTeam}</h1>
-                <strong>+{revealEntry.result.points} points</strong>
-              </div>
-            ) : (
-              <>
-                <p className="match-stage-label">{formatMatchStage(activeMatch.group)}</p>
-                <div className="score-row">
-                  <TeamInput
-                    team={activeMatch.homeTeam}
-                    code={activeMatch.homeCode}
-                    value={activeGuess.home}
-                    onChange={(event) => handleChange(activeMatch.id, 'home', event.target.value)}
-                    onKeyDown={handleHomeKeyDown}
-                    inputRef={homeInputRef}
-                    disabled={false}
-                  />
-
-                  <div className="match-divider">FT</div>
-
-                  <TeamInput
-                    team={activeMatch.awayTeam}
-                    code={activeMatch.awayCode}
-                    value={activeGuess.away}
-                    onChange={(event) => handleChange(activeMatch.id, 'away', event.target.value)}
-                    onKeyDown={handleAwayKeyDown}
-                    inputRef={awayInputRef}
-                    disabled={false}
-                  />
+          <section className="match-stage">
+            <article className={`match-card ${revealEntry ? 'is-revealing' : ''}`}>
+              {revealEntry ? (
+                <div className={`reveal-card ${revealCopy.tone}`}>
+                  <p>{revealCopy.title}</p>
+                  <h1>{revealEntry.match.homeTeam} {revealEntry.match.homeScore} - {revealEntry.match.awayScore} {revealEntry.match.awayTeam}</h1>
+                  <strong>+{revealEntry.result.points} points</strong>
                 </div>
+              ) : (
+                <>
+                  <p className="match-stage-label">{formatMatchStage(activeMatch.group)}</p>
+                  <div className="score-row">
+                    <TeamInput
+                      team={activeMatch.homeTeam}
+                      code={activeMatch.homeCode}
+                      value={activeGuess.home}
+                      onChange={(event) => handleChange(activeMatch.id, 'home', event.target.value)}
+                      onKeyDown={handleHomeKeyDown}
+                      inputRef={homeInputRef}
+                      disabled={false}
+                    />
 
-                <button
-                  className="primary-button submit-button"
-                  disabled={!activeResult.complete}
-                  onClick={handleSubmitCurrentFixture}
-                >
-                  Submit
-                </button>
-              </>
-            )}
-          </article>
+                    <div className="match-divider">FT</div>
+
+                    <TeamInput
+                      team={activeMatch.awayTeam}
+                      code={activeMatch.awayCode}
+                      value={activeGuess.away}
+                      onChange={(event) => handleChange(activeMatch.id, 'away', event.target.value)}
+                      onKeyDown={handleAwayKeyDown}
+                      inputRef={awayInputRef}
+                      disabled={false}
+                    />
+                  </div>
+
+                  <button
+                    className="primary-button submit-button"
+                    disabled={!activeResult.complete}
+                    onClick={handleSubmitCurrentFixture}
+                  >
+                    Submit
+                  </button>
+                </>
+              )}
+            </article>
+          </section>
         </section>
-      </section>
+      ) : activeTab === 'practice' ? (
+        <PracticeScreen
+          card={practiceCard}
+          totalCount={practiceDeck.length}
+          learnedCount={learnedPracticeCount}
+          weakCount={weakPracticeCount}
+          onFlip={() => setPracticeRevealId((current) => current === practiceCard?.id ? null : (practiceCard?.id ?? null))}
+          onRate={handlePracticeRating}
+          showingAnswer={practiceShowingAnswer}
+          selectedRatingIndex={selectedRatingIndex}
+          onSelectRatingIndex={setSelectedRatingIndex}
+          onRatingKeyDown={handlePracticeRatingKeyDown}
+          onJumpToPlay={() => setActiveTab('play')}
+        />
+      ) : (
+        <LeaderboardScreen
+          leaderboard={leaderboard}
+          onJumpToPlay={() => setActiveTab('play')}
+        />
+      )}
     </main>
   )
 }
