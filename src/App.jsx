@@ -4,6 +4,23 @@ import { useLeaderboard } from './useLeaderboard'
 
 const STORAGE_KEY = 'world-cup-recall-progress-v1'
 const PRACTICE_STORAGE_KEY = 'world-cup-recall-practice-v1'
+const TAB_PATHS = {
+  play: '/',
+  practice: '/practice',
+  leaderboard: '/leaderboard',
+}
+
+function getTabFromPath(pathname) {
+  if (pathname === '/practice') {
+    return 'practice'
+  }
+
+  if (pathname === '/leaderboard') {
+    return 'leaderboard'
+  }
+
+  return 'play'
+}
 
 const flagOverrides = {
   // Subdivision flags need Unicode tag sequences instead of ISO alpha-2 pairs.
@@ -410,8 +427,25 @@ function formatAttemptsLabel(attempts) {
   return `${attempts} attempt${attempts === 1 ? '' : 's'}`
 }
 
+function formatBestAttemptLabel(attemptIndex) {
+  return `Attempt #${attemptIndex ?? 1}`
+}
+
+function formatPercentileTop(percentile) {
+  if (!Number.isFinite(percentile)) {
+    return null
+  }
+
+  const topPercent = Math.max(0, 100 - percentile)
+  const rounded = topPercent % 1 === 0 ? topPercent.toFixed(0) : topPercent.toFixed(2)
+  return `Top ${rounded}%`
+}
+
 function CompletionScreen({
   metrics,
+  displayedPercentile,
+  percentileSource,
+  savedAttempt,
   elapsedSeconds,
   onReset,
   onShare,
@@ -430,7 +464,7 @@ function CompletionScreen({
       <h2 className="hero-title">WORLD CUP RECALL</h2>
       <p className="completion-points-label">Points</p>
       <h1>{metrics.score} / {metrics.maxScore}</h1>
-      <p className="completion-rank">Top {100 - metrics.percentile}%</p>
+      <p className="completion-rank">{formatPercentileTop(displayedPercentile) ?? 'Save your score to see percentile'}</p>
 
       <div className="completion-grid">
         <div>
@@ -461,42 +495,53 @@ function CompletionScreen({
 
       <p className="completion-note">{metrics.rating.note}</p>
 
-      <section className="leaderboard-panel">
-        <div className="leaderboard-save">
+      <section className="save-score-spotlight">
+        <div className="save-score-badge">Save your score before replay</div>
+        <div className="leaderboard-save leaderboard-save-hero">
           <div className="leaderboard-copy">
             <p className="screen-title">Save Score</p>
-            <h3>Join the leaderboard</h3>
-            <p>Ranked by score first, then fastest time as the tiebreaker. Email is used privately and not shown.</p>
+            <h3>Lock in your result</h3>
+            <p>
+              This is the main call to action after finishing. Ranked by score first, then fastest time as the tiebreaker. Email is used privately and not shown.
+              {percentileSource === 'backend' && savedAttempt
+                ? ` Saved as attempt ${savedAttempt.attempt_index}.`
+                : ' Percentile becomes exact after saving.'}
+            </p>
           </div>
 
-          <div className="leaderboard-form">
-            <input
-              aria-label="Name"
-              className="leaderboard-input"
-              name="name"
-              placeholder="Name"
-              type="text"
-              value={leaderboardForm.name}
-              onChange={onLeaderboardChange}
-            />
-            <input
-              aria-label="Email"
-              className="leaderboard-input"
-              name="email"
-              placeholder="Email"
-              type="email"
-              value={leaderboardForm.email}
-              onChange={onLeaderboardChange}
-            />
-            <button className="primary-button leaderboard-button" onClick={onSaveLeaderboard}>Save Score</button>
+          <div className="leaderboard-save-row">
+            <div className="leaderboard-form leaderboard-form-hero">
+              <input
+                aria-label="Name"
+                className="leaderboard-input"
+                name="name"
+                placeholder="Name"
+                type="text"
+                value={leaderboardForm.name}
+                onChange={onLeaderboardChange}
+              />
+              <input
+                aria-label="Email"
+                className="leaderboard-input"
+                name="email"
+                placeholder="Email"
+                type="email"
+                value={leaderboardForm.email}
+                onChange={onLeaderboardChange}
+              />
+            </div>
+            <button className="primary-button leaderboard-button leaderboard-button-hero" onClick={onSaveLeaderboard}>Save Score</button>
           </div>
           <p className="leaderboard-feedback">
-            {leaderboardState === 'saved' && 'Score saved to leaderboard'}
+            {leaderboardState === 'saved' && savedAttempt && `Score saved. ${formatPercentileTop(savedAttempt.percentile)} on attempt ${savedAttempt.attempt_index}.`}
+            {leaderboardState === 'saved' && !savedAttempt && 'Score saved to leaderboard'}
             {leaderboardState === 'invalid' && 'Enter a valid name and email'}
             {leaderboardState === 'error' && 'Could not save leaderboard entry'}
           </p>
         </div>
+      </section>
 
+      <section className="leaderboard-panel">
         <div className="leaderboard-list">
           <div className="leaderboard-copy">
             <p className="screen-title">Leaderboard</p>
@@ -511,10 +556,11 @@ function CompletionScreen({
                   <span className="leaderboard-rank">#{index + 1}</span>
                   <div className="leaderboard-person">
                     <strong>{entry.name}</strong>
-                    <span>{formatAttemptsLabel(entry.attempts ?? 1)}</span>
+                    <span>Saved score</span>
                   </div>
                   <div className="leaderboard-score">
                     <strong>{entry.points} pts</strong>
+                    <span>{formatBestAttemptLabel(entry.attemptIndex)}</span>
                     <span>{formatElapsedTime(entry.elapsedSeconds)}</span>
                   </div>
                 </div>
@@ -549,9 +595,6 @@ function PracticeFace({ card, revealed }) {
 
   return (
     <div className={`practice-face ${revealed ? 'is-back' : 'is-front'}`}>
-      <div className="practice-face-header">
-        <p className="screen-title">Practice Mode</p>
-      </div>
       <div className="practice-matchup">
         <div className="practice-team">
           <span className="practice-flag" aria-hidden="true">{getFlagEmoji(card.homeCode)}</span>
@@ -565,9 +608,6 @@ function PracticeFace({ card, revealed }) {
       </div>
       <div className="practice-meta-block">
         <p className="practice-meta">{metaLabel}</p>
-        <p className="practice-meta practice-meta-score">
-          {revealed ? `Final score: ${hiddenScore}` : 'Final score hidden'}
-        </p>
       </div>
       <p>{revealed ? `Your original result: ${card.resultLabel}` : 'Click to reveal score.'}</p>
     </div>
@@ -636,7 +676,7 @@ function PracticeScreen({
           </div>
           <div className="practice-stat-card is-active">
             <div className="progress-copy">
-              <span>In rotation</span>
+              <span>Still practicing</span>
               <strong>{Math.max(0, totalCount - weakCount - learnedCount)}</strong>
             </div>
             <div className="practice-stat-bar is-active" aria-hidden="true">
@@ -645,7 +685,7 @@ function PracticeScreen({
           </div>
           <div className="practice-stat-card is-stable">
             <div className="progress-copy">
-              <span>Stabilized</span>
+              <span>Learned</span>
               <strong>{learnedCount}</strong>
             </div>
             <div className="practice-stat-bar is-stable" aria-hidden="true">
@@ -710,7 +750,7 @@ function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
                 <span className="leaderboard-rank">#{index + 1}</span>
                 <div className="leaderboard-person">
                   <strong>{entry.name}</strong>
-                  <span>{formatAttemptsLabel(entry.attempts ?? 1)}</span>
+                  <span>{formatBestAttemptLabel(entry.attemptIndex)}</span>
                 </div>
                 <div className="leaderboard-score">
                   <strong>{entry.points} pts</strong>
@@ -739,7 +779,7 @@ export default function App() {
   const [lockedMatches, setLockedMatches] = useState(initialState.lockedMatches)
   const [activeIndex, setActiveIndex] = useState(initialState.activeIndex)
   const [elapsedSeconds, setElapsedSeconds] = useState(initialState.elapsedSeconds)
-  const [activeTab, setActiveTab] = useState('play')
+  const [activeTab, setActiveTab] = useState(() => getTabFromPath(window.location.pathname))
   const [practiceCards, setPracticeCards] = useState(initialPracticeState)
   const [practiceStep, setPracticeStep] = useState(0)
   const [practiceRevealId, setPracticeRevealId] = useState(null)
@@ -753,10 +793,20 @@ export default function App() {
     leaderboard,
     leaderboardForm,
     leaderboardState,
+    savedAttempt,
     setLeaderboardState,
     handleLeaderboardChange,
     saveLeaderboardEntry,
   } = useLeaderboard()
+
+  function navigateToTab(nextTab) {
+    const nextPath = TAB_PATHS[nextTab] ?? TAB_PATHS.play
+    const nextState = getTabFromPath(nextPath)
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+    }
+    setActiveTab(nextState)
+  }
 
   function handleChange(matchId, side, value) {
     if (lockedMatches[matchId]) {
@@ -780,7 +830,7 @@ export default function App() {
     setLockedMatches(nextState.lockedMatches)
     setActiveIndex(nextState.activeIndex)
     setElapsedSeconds(nextState.elapsedSeconds)
-    setActiveTab('play')
+    navigateToTab('play')
     setPracticeStep(0)
     setLeaderboardState('idle')
     setShareState('idle')
@@ -829,6 +879,8 @@ export default function App() {
   const allRevealed = metrics.lockedCount === fixtureOrder.length
   const showCompletion = activeTab === 'play' && allRevealed && revealEntry === null
   const progressPercent = (metrics.lockedCount / fixtureOrder.length) * 100
+  const displayedPercentile = savedAttempt?.percentile ?? null
+  const percentileSource = savedAttempt ? 'backend' : 'local'
 
   const practiceDeck = useMemo(() => {
     return metrics.results
@@ -922,10 +974,15 @@ export default function App() {
       name: leaderboardForm.name,
       email: leaderboardForm.email,
       points: metrics.score,
-      elapsed_seconds: elapsedSeconds,
-      exact: metrics.exact,
-      calls: metrics.calls,
-      rating: metrics.rating.title,
+      maxPoints: metrics.maxScore,
+      elapsedSeconds,
+      exactScores: metrics.exact,
+      correctWinners: metrics.calls,
+      metadata: {
+        bestGroup: metrics.bestGroup?.group ?? null,
+        worstGroup: metrics.worstGroup?.group ?? null,
+        clientRating: metrics.rating.title,
+      },
     })
   }
 
@@ -986,6 +1043,17 @@ export default function App() {
       handlePracticeRating(['again', 'hard', 'good', 'easy'][selectedRatingIndex])
     }
   }
+
+  useEffect(() => {
+    function syncTabWithLocation() {
+      setActiveTab(getTabFromPath(window.location.pathname))
+    }
+
+    window.addEventListener('popstate', syncTabWithLocation)
+    syncTabWithLocation()
+
+    return () => window.removeEventListener('popstate', syncTabWithLocation)
+  }, [])
 
   useEffect(() => {
     if (allRevealed) {
@@ -1071,12 +1139,15 @@ export default function App() {
       <main className="app-shell app-shell-complete">
         <div className="background-wash" />
         <div className="tab-row tab-row-floating">
-          <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('play')}>Play</button>
-          <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('practice')}>Practice</button>
-          <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('leaderboard')}>Leaderboard</button>
+          <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('play')}>Play</button>
+          <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('practice')}>Practice</button>
+          <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('leaderboard')}>Leaderboard</button>
         </div>
         <CompletionScreen
           metrics={metrics}
+          displayedPercentile={displayedPercentile}
+          percentileSource={percentileSource}
+          savedAttempt={savedAttempt}
           elapsedSeconds={elapsedSeconds}
           onReset={resetGame}
           onShare={handleShareScores}
@@ -1104,9 +1175,9 @@ export default function App() {
         </div>
         <div className="header-meta">
           <div className="tab-row" role="tablist" aria-label="Game mode">
-            <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('play')}>Play</button>
-            <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('practice')}>Practice</button>
-            <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => setActiveTab('leaderboard')}>Leaderboard</button>
+            <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('play')}>Play</button>
+            <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('practice')}>Practice</button>
+            <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('leaderboard')}>Leaderboard</button>
           </div>
           <p className="match-counter">
             {activeTab === 'play' ? `Match ${activeIndex + 1} / ${fixtureOrder.length}` : activeTab === 'practice' ? `${weakPracticeCount} weak cards` : `${leaderboard.length} saved scores`}
@@ -1198,12 +1269,12 @@ export default function App() {
           selectedRatingIndex={selectedRatingIndex}
           onSelectRatingIndex={setSelectedRatingIndex}
           onRatingKeyDown={handlePracticeRatingKeyDown}
-          onJumpToPlay={() => setActiveTab('play')}
+          onJumpToPlay={() => navigateToTab('play')}
         />
       ) : (
         <LeaderboardScreen
           leaderboard={leaderboard}
-          onJumpToPlay={() => setActiveTab('play')}
+          onJumpToPlay={() => navigateToTab('play')}
         />
       )}
     </main>

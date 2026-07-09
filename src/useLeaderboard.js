@@ -11,68 +11,41 @@ function compareLeaderboardEntries(left, right) {
   return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
 }
 
-function rankLeaderboard(entries) {
-  return [...entries]
-    .sort(compareLeaderboardEntries)
-    .slice(0, 25)
-}
-
 function mapLeaderboardRow(row) {
   return {
     name: row.name,
     email: row.email,
     points: row.points,
     elapsedSeconds: row.elapsed_seconds,
-    exact: row.exact,
-    calls: row.calls,
-    rating: row.rating,
+    exact: row.exact_scores,
+    calls: row.correct_winners,
+    percentile: row.percentile,
+    attemptIndex: row.attempt_index,
+    attempts: row.total_attempts,
     createdAt: row.created_at,
   }
-}
-
-function mergeLeaderboardEntries(rows) {
-  const groupedEntries = new Map()
-
-  rows.forEach((row) => {
-    const key = row.email.trim().toLowerCase()
-    const current = groupedEntries.get(key)
-
-    if (!current) {
-      groupedEntries.set(key, {
-        ...row,
-        attempts: 1,
-      })
-      return
-    }
-
-    const bestEntry = compareLeaderboardEntries(row, current) < 0 ? row : current
-    groupedEntries.set(key, {
-      ...bestEntry,
-      attempts: current.attempts + 1,
-    })
-  })
-
-  return Array.from(groupedEntries.values())
 }
 
 export function useLeaderboard() {
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderboardForm, setLeaderboardForm] = useState({ name: '', email: '' })
   const [leaderboardState, setLeaderboardState] = useState('idle')
+  const [savedAttempt, setSavedAttempt] = useState(null)
 
   async function loadLeaderboard() {
     const { data, error } = await supabase
-      .from('leaderboard_entries')
-      .select('name, email, points, elapsed_seconds, exact, calls, rating, created_at')
+      .from('leaderboard_best_attempts')
+      .select('name, email, points, elapsed_seconds, exact_scores, correct_winners, percentile, attempt_index, total_attempts, created_at')
       .order('points', { ascending: false })
       .order('elapsed_seconds', { ascending: true })
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(25)
 
     if (error || !data) {
       throw error ?? new Error('Could not load leaderboard')
     }
 
-    setLeaderboard(rankLeaderboard(mergeLeaderboardEntries(data.map(mapLeaderboardRow))))
+    setLeaderboard(data.map(mapLeaderboardRow).sort(compareLeaderboardEntries))
   }
 
   async function saveLeaderboardEntry(entry) {
@@ -86,29 +59,38 @@ export function useLeaderboard() {
     }
 
     try {
-      const { error } = await supabase.from('leaderboard_entries').insert({
-        ...entry,
-        name,
-        email,
+      const { data, error } = await supabase.rpc('submit_player_attempt', {
+        p_name: name,
+        p_email: email,
+        p_points: entry.points,
+        p_max_points: entry.maxPoints,
+        p_exact_scores: entry.exactScores,
+        p_correct_winners: entry.correctWinners,
+        p_elapsed_seconds: entry.elapsedSeconds,
+        p_game_slug: entry.gameSlug ?? 'world-cup-recall',
+        p_metadata: entry.metadata ?? {},
       })
 
       if (error) {
         throw error
       }
 
+      const attempt = data?.[0] ?? null
+      setSavedAttempt(attempt)
       await loadLeaderboard()
       setLeaderboardForm({ name: '', email: '' })
       setLeaderboardState('saved')
-      return true
+      return attempt
     } catch {
       setLeaderboardState('error')
-      return false
+      return null
     }
   }
 
   function handleLeaderboardChange(event) {
     const { name, value } = event.target
     setLeaderboardState('idle')
+    setSavedAttempt(null)
     setLeaderboardForm((current) => ({
       ...current,
       [name]: value,
@@ -125,6 +107,7 @@ export function useLeaderboard() {
     leaderboard,
     leaderboardForm,
     leaderboardState,
+    savedAttempt,
     setLeaderboardState,
     handleLeaderboardChange,
     saveLeaderboardEntry,

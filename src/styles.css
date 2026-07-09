@@ -275,7 +275,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 20px;
+  /* margin-top: 20px; */
 }
 
 .progress-copy span {
@@ -348,8 +348,8 @@ button:disabled {
 .practice-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 20px;
-  margin-top: 20px;
+  gap: 14px;
+  margin-top: 16px;
 }
 
 .practice-rail {
@@ -357,22 +357,22 @@ button:disabled {
 }
 
 .practice-note {
-  margin: 20px 0 0;
+  margin: 14px 0 0;
   color: var(--muted);
   line-height: 1.5;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   max-width: 22ch;
 }
 
 .practice-stats-grid {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .practice-stat-card {
   display: grid;
-  gap: 12px;
-  padding: 16px 16px 14px;
+  gap: 10px;
+  padding: 13px 14px 12px;
   border-radius: 18px;
   border: 1px solid rgba(213, 179, 106, 0.14);
   background: rgba(255, 248, 232, 0.035);
@@ -420,13 +420,17 @@ button:disabled {
 }
 
 .practice-card {
-  min-height: min(70vh, 680px);
-  gap: 24px;
+  min-height: auto;
+  align-content: start;
+  justify-items: center;
+  gap: 12px;
+  padding-top: 20px;
+  padding-bottom: 6px;
 }
 
 .practice-empty {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   justify-items: center;
   text-align: center;
 }
@@ -447,7 +451,7 @@ button:disabled {
 
 .practice-flip-card {
   width: min(760px, 100%);
-  min-height: 360px;
+  min-height: 340px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -457,7 +461,7 @@ button:disabled {
 
 .practice-flip-inner {
   position: relative;
-  min-height: 360px;
+  min-height: 340px;
   transition: transform 520ms cubic-bezier(0.22, 0.74, 0.18, 1);
   transform-style: preserve-3d;
 }
@@ -471,8 +475,8 @@ button:disabled {
   inset: 0;
   display: grid;
   align-content: center;
-  gap: 28px;
-  padding: 32px;
+  gap: 24px;
+  padding: 28px;
   border-radius: 30px;
   border: 1px solid rgba(213, 179, 106, 0.18);
   background:
@@ -510,50 +514,47 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 18px;
   align-items: center;
+  min-height: 190px;
 }
 
 .practice-team {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   justify-items: center;
   text-align: center;
 }
 
 .practice-team strong {
   font-family: "Fraunces", serif;
-  font-size: clamp(2.1rem, 4vw, 3.5rem);
-  line-height: 0.94;
+  max-width: 8ch;
+  font-size: clamp(2.1rem, 3.8vw, 3.25rem);
+  line-height: 0.92;
+  text-wrap: balance;
 }
 
 .practice-meta-block {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   justify-items: center;
 }
 
 .practice-meta {
   margin: 0;
   color: var(--text);
-  font-size: 0.86rem;
+  font-size: 0.94rem;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
-.practice-meta-score {
-  color: var(--muted);
-  font-size: 0.82rem;
-  letter-spacing: 0.12em;
-}
-
 .practice-flag {
-  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-size: clamp(2.8rem, 5.5vw, 4rem);
 }
 
 .practice-versus {
   color: var(--accent);
   font-family: "Fraunces", serif;
-  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  font-size: clamp(1.9rem, 3vw, 2.5rem);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -567,9 +568,12 @@ button:disabled {
 
 .practice-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+  width: min(760px, 100%);
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .practice-actions button.is-selected {
@@ -587,6 +591,14 @@ button:disabled {
     radial-gradient(circle at top, rgba(213, 179, 106, 0.12), transparent 30%),
     linear-gradient(180deg, rgba(239, 228, 200, 0.04), transparent 16%),
     var(--card-strong);
+}
+
+.match-card.practice-card {
+  min-height: auto;
+  align-content: start;
+  justify-items: center;
+  padding-top: 20px;
+  padding-bottom: 6px;
 }
 
 .match-card.is-revealing {
@@ -845,10 +857,28 @@ button:disabled {
 
 .leaderboard-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   margin-top: 28px;
   text-align: left;
+}
+
+.save-score-spotlight {
+  margin-top: 30px;
+}
+
+.save-score-badge {
+  display: inline-flex;
+  margin-bottom: 12px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(225, 201, 143, 0.28), rgba(200, 161, 93, 0.16));
+  border: 1px solid rgba(225, 201, 143, 0.44);
+  color: var(--accent-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .leaderboard-save,
@@ -857,6 +887,38 @@ button:disabled {
   border-radius: 24px;
   background: rgba(255, 248, 232, 0.03);
   border: 1px solid rgba(213, 179, 106, 0.12);
+}
+
+.leaderboard-save-hero {
+  position: relative;
+  padding: 28px;
+  background:
+    radial-gradient(circle at top, rgba(225, 201, 143, 0.2), transparent 38%),
+    linear-gradient(180deg, rgba(255, 248, 232, 0.07), rgba(255, 248, 232, 0.03)),
+    rgba(27, 38, 31, 0.88);
+  border: 1px solid rgba(225, 201, 143, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 232, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.24);
+  animation: save-score-pulse 2.8s ease-in-out infinite;
+}
+
+.leaderboard-save-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 14px;
+  align-items: end;
+  margin-top: 22px;
+}
+
+.leaderboard-form-hero {
+  margin-top: 0;
+}
+
+.leaderboard-button-hero {
+  min-height: 110px;
+  font-size: 1.08rem;
+  letter-spacing: 0.12em;
 }
 
 .leaderboard-copy h3 {
@@ -964,6 +1026,23 @@ button:disabled {
   }
 }
 
+@keyframes save-score-pulse {
+  0%,
+  100% {
+    transform: translateY(0);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 248, 232, 0.08),
+      0 20px 60px rgba(0, 0, 0, 0.24);
+  }
+
+  50% {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 248, 232, 0.12),
+      0 26px 70px rgba(0, 0, 0, 0.3);
+  }
+}
+
 @media (max-width: 980px) {
   .game-layout,
   .practice-shell,
@@ -1002,6 +1081,14 @@ button:disabled {
 
   .practice-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .leaderboard-save-row {
+    grid-template-columns: 1fr;
+  }
+
+  .leaderboard-button-hero {
+    min-height: 54px;
   }
 }
 
@@ -1056,12 +1143,16 @@ button:disabled {
 
   .practice-flip-card,
   .practice-flip-inner {
-    min-height: 360px;
+    min-height: 320px;
   }
 
   .practice-face {
-    padding: 20px;
-    gap: 18px;
+    padding: 18px;
+    gap: 14px;
+  }
+
+  .practice-matchup {
+    min-height: 172px;
   }
 
   .practice-stats-grid {
@@ -1077,8 +1168,8 @@ button:disabled {
   }
 
   .practice-note {
-    margin-top: 14px;
-    font-size: 0.9rem;
+    margin-top: 10px;
+    font-size: 0.86rem;
   }
 
   .match-card {
@@ -1239,15 +1330,25 @@ button:disabled {
 
   .practice-flip-card,
   .practice-flip-inner {
-    min-height: 320px;
+    min-height: 280px;
+  }
+
+  .practice-card {
+    padding-top: 16px;
+    padding-bottom: 4px;
   }
 
   .practice-face {
-    padding: 18px 16px;
+    padding: 16px 14px;
   }
 
   .practice-matchup {
     gap: 12px;
+    min-height: 148px;
+  }
+
+  .practice-team strong {
+    max-width: 7ch;
   }
 
   .practice-flag {
