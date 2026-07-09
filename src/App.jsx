@@ -10,16 +10,29 @@ const TAB_PATHS = {
   leaderboard: '/leaderboard',
 }
 
-function getTabFromPath(pathname) {
+function getRouteState(pathname) {
+  const attemptMatch = pathname.match(/^\/attempt\/([0-9a-f-]+)$/i)
+
+  if (attemptMatch) {
+    return {
+      mode: 'attemptReview',
+      shareToken: attemptMatch[1],
+    }
+  }
+
   if (pathname === '/practice') {
-    return 'practice'
+    return { mode: 'practice', shareToken: null }
   }
 
   if (pathname === '/leaderboard') {
-    return 'leaderboard'
+    return { mode: 'leaderboard', shareToken: null }
   }
 
-  return 'play'
+  return { mode: 'play', shareToken: null }
+}
+
+function getTabFromRoute(route) {
+  return route.mode === 'attemptReview' ? 'play' : route.mode
 }
 
 const flagOverrides = {
@@ -27,14 +40,6 @@ const flagOverrides = {
   'GB-ENG': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
   'GB-SCT': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
 }
-
-const tiers = [
-  { min: 93, title: 'World Cup Oracle', note: 'Deadly accurate. Your card looks like it came from the future.' },
-  { min: 82, title: 'Knockout Lock', note: 'You are reading scorelines better than most of the field.' },
-  { min: 68, title: 'Group Boss', note: 'Strong work. Plenty of sharp calls with only a few misses.' },
-  { min: 50, title: 'Still Alive', note: 'You are landing some outcomes, but exact scores are slipping away.' },
-  { min: 0, title: 'Chaos Agent', note: 'Spectacular confidence, mixed results.' },
-]
 
 function shuffleArray(items) {
   const copy = [...items]
@@ -104,10 +109,6 @@ function scorePrediction(match, guess) {
     teamGoals,
     difference,
   }
-}
-
-function buildRating(percent) {
-  return tiers.find((item) => percent >= item.min) ?? tiers[tiers.length - 1]
 }
 
 function computePercentile(score, maxScore) {
@@ -210,6 +211,10 @@ function createDefaultGameState() {
     activeIndex: 0,
     elapsedSeconds: 0,
   }
+}
+
+function getRandomScoreDigit() {
+  return String(Math.floor(Math.random() * 8))
 }
 
 function restorePracticeState() {
@@ -395,32 +400,56 @@ function TeamInput({ team, code, value, onChange, onKeyDown, inputRef, disabled 
 }
 
 function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) {
+  const reviewItems = fixtureOrder.map((match, index) => {
+    const guess = guesses[match.id]
+    const result = metrics.results.find((entry) => entry.match.id === match.id)?.result
+
+    return {
+      matchId: match.id,
+      matchNumber: index + 1,
+      stage: match.group,
+      date: match.date,
+      homeTeam: match.homeTeam,
+      awayTeam: match.awayTeam,
+      homeCode: match.homeCode,
+      awayCode: match.awayCode,
+      guessedHome: guess.home,
+      guessedAway: guess.away,
+      actualHome: match.homeScore,
+      actualAway: match.awayScore,
+      guessedScore: `${guess.home}-${guess.away}`,
+      actualScore: `${match.homeScore}-${match.awayScore}`,
+      points: result?.points ?? 0,
+      exact: result?.exact ?? false,
+      correctOutcome: result?.outcome ?? false,
+    }
+  })
+
   return {
     game: 'World Cup Recall',
     exportedAt: new Date().toISOString(),
     points: metrics.score,
     maxPoints: metrics.maxScore,
     percentile: metrics.percentile,
-    rating: metrics.rating.title,
     exactScores: metrics.exact,
     correctWinners: metrics.calls,
     elapsedSeconds,
-    matches: fixtureOrder.map((match) => {
-      const guess = guesses[match.id]
-      const result = metrics.results.find((entry) => entry.match.id === match.id)?.result
-
-      return {
-        matchNumber: fixtureOrder.findIndex((item) => item.id === match.id) + 1,
-        homeTeam: match.homeTeam,
-        awayTeam: match.awayTeam,
-        guessedScore: `${guess.home}-${guess.away}`,
-        actualScore: `${match.homeScore}-${match.awayScore}`,
-        points: result?.points ?? 0,
-        exact: result?.exact ?? false,
-        correctOutcome: result?.outcome ?? false,
-      }
-    }),
+    matches: reviewItems,
   }
+}
+
+function getAttemptReviewLink(shareToken) {
+  return `${window.location.origin}/attempt/${shareToken}`
+}
+
+function getReviewResultTone(entry) {
+  if (entry.exact) {
+    return 'exact'
+  }
+  if (entry.correctOutcome) {
+    return 'good'
+  }
+  return 'miss'
 }
 
 function formatAttemptsLabel(attempts) {
@@ -441,23 +470,96 @@ function formatPercentileTop(percentile) {
   return `Top ${rounded}%`
 }
 
+function getResultStatusLabel(entry) {
+  if (entry.exact) {
+    return 'Exact score'
+  }
+  if (entry.correctOutcome) {
+    return 'Correct outcome'
+  }
+  return 'Miss'
+}
+
+function formatReviewTeams(entry) {
+  return `${entry.homeTeam} vs ${entry.awayTeam}`
+}
+
+function formatReviewActualLabel(entry) {
+  return `Actual ${entry.actualScore}`
+}
+
+function ReviewList({ matches, title, description, collapsible = false }) {
+  const [isOpen, setIsOpen] = useState(!collapsible)
+
+  return (
+    <section className="leaderboard-panel">
+      <div className="attempt-review-header">
+        <div className="leaderboard-copy">
+          <h3>Detailed review</h3>
+          <p>{description}</p>
+        </div>
+        {collapsible ? (
+          <button
+            aria-expanded={isOpen}
+            className="attempt-review-section-toggle"
+            onClick={() => setIsOpen((current) => !current)}
+            type="button"
+          >
+            {isOpen ? 'Hide review' : 'Show review'}
+          </button>
+        ) : null}
+      </div>
+
+      {isOpen ? (
+        <div className="attempt-review-list">
+          {matches.map((entry) => {
+            const matchKey = `${entry.matchId}-${entry.matchNumber}`
+
+            return (
+              <article className={`attempt-review-row is-${getReviewResultTone(entry)}`} key={matchKey}>
+              <div className="attempt-review-match">
+                <span className="attempt-review-index">#{entry.matchNumber}</span>
+                <div className="attempt-review-match-copy">
+                  <strong>{formatReviewTeams(entry)}</strong>
+                  <span className="attempt-review-stage">{formatMatchStage(entry.stage)}</span>
+                </div>
+              </div>
+              <div className="attempt-review-score">
+                <span>Pick {entry.guessedScore}</span>
+                <strong>Actual {entry.actualScore}</strong>
+              </div>
+              <div className="attempt-review-points">
+                <strong>{entry.points} pts</strong>
+                <span className="attempt-review-status">{getResultStatusLabel(entry)}</span>
+              </div>
+            </article>
+            )
+          })}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function CompletionScreen({
   metrics,
+  reviewMatches,
+  reviewUrl,
   displayedPercentile,
   percentileSource,
   savedAttempt,
   elapsedSeconds,
   onReset,
-  onShare,
-  onExport,
+  onCopyLink,
   shareState,
-  exportState,
-  leaderboard,
   leaderboardForm,
   leaderboardState,
+  leaderboardError,
   onLeaderboardChange,
   onSaveLeaderboard,
 }) {
+  const hasSavedAttempt = Boolean(savedAttempt) && leaderboardState === 'saved'
+
   return (
     <section className="completion-screen">
       <p className="screen-title">WORLD CUP RECALL</p>
@@ -477,113 +579,94 @@ function CompletionScreen({
         </div>
         <div>
           <span>Best Group</span>
-          <strong>{metrics.bestGroup ? `Group ${metrics.bestGroup.group}` : 'N/A'}</strong>
+          <strong>{metrics.bestGroup ? formatMatchStage(metrics.bestGroup.group) : 'N/A'}</strong>
         </div>
         <div>
           <span>Toughest Group</span>
-          <strong>{metrics.worstGroup ? `Group ${metrics.worstGroup.group}` : 'N/A'}</strong>
+          <strong>{metrics.worstGroup ? formatMatchStage(metrics.worstGroup.group) : 'N/A'}</strong>
         </div>
         <div>
           <span>Time</span>
           <strong>{formatElapsedTime(elapsedSeconds)}</strong>
         </div>
-        <div>
-          <span>Rating</span>
-          <strong>{metrics.rating.title}</strong>
-        </div>
       </div>
-
-      <p className="completion-note">{metrics.rating.note}</p>
 
       <section className="save-score-spotlight">
         <div className="save-score-badge">Save your score before replay</div>
         <div className="leaderboard-save leaderboard-save-hero">
           <div className="leaderboard-copy">
             <p className="screen-title">Save Score</p>
-            <h3>Lock in your result</h3>
-            <p>
-              This is the main call to action after finishing. Ranked by score first, then fastest time as the tiebreaker. Email is used privately and not shown.
-              {percentileSource === 'backend' && savedAttempt
-                ? ` Saved as attempt ${savedAttempt.attempt_index}.`
-                : ' Percentile becomes exact after saving.'}
-            </p>
+            <h3>{hasSavedAttempt ? 'Result saved' : 'Lock in your result'}</h3>
+            {hasSavedAttempt && savedAttempt?.attempt_index ? (
+              <p>{formatBestAttemptLabel(savedAttempt.attempt_index)}</p>
+            ) : null}
+            {!hasSavedAttempt ? (
+              <p>
+                Email is used privately and not shown.
+                {percentileSource === 'backend' && savedAttempt
+                  ? ` Saved as attempt ${savedAttempt.attempt_index}.`
+                  : ' Percentile becomes exact after saving.'}
+              </p>
+            ) : null}
           </div>
 
-          <div className="leaderboard-save-row">
-            <div className="leaderboard-form leaderboard-form-hero">
-              <input
-                aria-label="Name"
-                className="leaderboard-input"
-                name="name"
-                placeholder="Name"
-                type="text"
-                value={leaderboardForm.name}
-                onChange={onLeaderboardChange}
-              />
-              <input
-                aria-label="Email"
-                className="leaderboard-input"
-                name="email"
-                placeholder="Email"
-                type="email"
-                value={leaderboardForm.email}
-                onChange={onLeaderboardChange}
-              />
+          {!hasSavedAttempt ? (
+            <div className="leaderboard-save-row">
+              <div className="leaderboard-form leaderboard-form-hero">
+                <input
+                  aria-label="Name"
+                  className="leaderboard-input"
+                  name="name"
+                  placeholder="Name"
+                  type="text"
+                  value={leaderboardForm.name}
+                  onChange={onLeaderboardChange}
+                />
+                <input
+                  aria-label="Email"
+                  className="leaderboard-input"
+                  name="email"
+                  placeholder="Email"
+                  type="email"
+                  value={leaderboardForm.email}
+                  onChange={onLeaderboardChange}
+                />
+              </div>
+              <button className="primary-button leaderboard-button leaderboard-button-hero" onClick={onSaveLeaderboard}>Save Score</button>
             </div>
-            <button className="primary-button leaderboard-button leaderboard-button-hero" onClick={onSaveLeaderboard}>Save Score</button>
-          </div>
+          ) : null}
           <p className="leaderboard-feedback">
-            {leaderboardState === 'saved' && savedAttempt && `Score saved. ${formatPercentileTop(savedAttempt.percentile)} on attempt ${savedAttempt.attempt_index}.`}
-            {leaderboardState === 'saved' && !savedAttempt && 'Score saved to leaderboard'}
+            {leaderboardState === 'saved' && savedAttempt && `Result saved as ${formatBestAttemptLabel(savedAttempt.attempt_index)}`}
             {leaderboardState === 'invalid' && 'Enter a valid name and email'}
-            {leaderboardState === 'error' && 'Could not save leaderboard entry'}
+            {leaderboardState === 'error' && (leaderboardError || 'Could not save leaderboard entry')}
           </p>
-        </div>
-      </section>
-
-      <section className="leaderboard-panel">
-        <div className="leaderboard-list">
-          <div className="leaderboard-copy">
-            <p className="screen-title">Leaderboard</p>
-            <h3>Top scores</h3>
-            <p>Higher score wins. Matching scores are ordered by faster time.</p>
-          </div>
-
-          {leaderboard.length > 0 ? (
-            <div className="leaderboard-rows">
-              {leaderboard.map((entry, index) => (
-                <div className="leaderboard-row" key={`${entry.email}-${entry.createdAt}`}>
-                  <span className="leaderboard-rank">#{index + 1}</span>
-                  <div className="leaderboard-person">
-                    <strong>{entry.name}</strong>
-                    <span>Saved score</span>
-                  </div>
-                  <div className="leaderboard-score">
-                    <strong>{entry.points} pts</strong>
-                    <span>{formatBestAttemptLabel(entry.attemptIndex)}</span>
-                    <span>{formatElapsedTime(entry.elapsedSeconds)}</span>
-                  </div>
-                </div>
-              ))}
+          {reviewUrl ? (
+            <div className="share-link-panel">
+              <p className="share-link-label">Copy link to share with friends</p>
+              <div className="share-link-actions">
+                <button className="secondary-button" type="button" onClick={onCopyLink}>Copy Link</button>
+              </div>
             </div>
-          ) : (
-            <p className="leaderboard-empty">No saved scores yet.</p>
-          )}
+          ) : null}
         </div>
       </section>
+
+      <ReviewList
+        title="Exam Review"
+        description="Open any result to see the prediction, the actual score, and whether you were right or wrong."
+        matches={reviewMatches}
+        collapsible
+      />
 
       <div className="completion-actions">
         <button className="primary-button" onClick={onReset}>Play Again</button>
-        <button className="secondary-button" onClick={onShare}>Share Results</button>
-        <button className="secondary-button" onClick={onExport}>Export Results</button>
       </div>
 
       <p className="share-feedback">
         {shareState === 'shared' && 'Shared'}
-        {shareState === 'copied' && 'Copied share text'}
+        {shareState === 'copied' && 'Copied review link'}
+        {shareState === 'needs-save' && 'Save your score first to create a review link'}
         {shareState === 'error' && 'Share failed'}
-        {exportState === 'saved' && 'Exported results file'}
-        {exportState === 'error' && 'Export failed'}
       </p>
     </section>
   )
@@ -771,6 +854,97 @@ function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
   )
 }
 
+function AttemptReviewScreen({ attempt, reviewState, onCopyLink, onBackToPlay, shareState }) {
+  const reviewPayload = attempt?.metadata?.reviewPayload ?? null
+  const reviewMatches = Array.isArray(reviewPayload?.matches) ? reviewPayload.matches : []
+  const reviewBestGroup = reviewPayload?.bestGroup ?? null
+  const reviewWorstGroup = reviewPayload?.worstGroup ?? null
+
+  if (reviewState === 'loading') {
+    return (
+      <main className="app-shell app-shell-complete">
+        <div className="background-wash" />
+        <section className="completion-screen leaderboard-screen-card">
+          <p className="screen-title">Saved Attempt</p>
+          <h2>Loading review</h2>
+        </section>
+      </main>
+    )
+  }
+
+  if (reviewState === 'error' || !attempt || !reviewPayload) {
+    return (
+      <main className="app-shell app-shell-complete">
+        <div className="background-wash" />
+        <section className="completion-screen leaderboard-screen-card">
+          <p className="screen-title">Saved Attempt</p>
+          <h2>Review unavailable</h2>
+          <p>This shared attempt could not be loaded.</p>
+          <div className="completion-actions">
+            <button className="primary-button" onClick={onBackToPlay}>Back To Play</button>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="app-shell app-shell-complete">
+      <div className="background-wash" />
+      <section className="completion-screen leaderboard-screen-card attempt-review-screen">
+        <p className="screen-title">Saved Attempt</p>
+        <h2>{attempt.name}</h2>
+        <p className="completion-note">{formatBestAttemptLabel(attempt.attemptIndex)}</p>
+        <p className="completion-rank">{formatPercentileTop(attempt.percentile) ?? 'Saved result'}</p>
+
+        <div className="completion-grid">
+          <div>
+            <span>Points</span>
+            <strong>{attempt.points} / {attempt.maxPoints}</strong>
+          </div>
+          <div>
+            <span>Exact Scores</span>
+            <strong>{attempt.exactScores}</strong>
+          </div>
+          <div>
+            <span>Correct Winners</span>
+            <strong>{attempt.correctWinners}</strong>
+          </div>
+          <div>
+            <span>Time</span>
+            <strong>{formatElapsedTime(attempt.elapsedSeconds)}</strong>
+          </div>
+          <div>
+            <span>Best Group</span>
+            <strong>{reviewBestGroup ? formatMatchStage(reviewBestGroup) : 'N/A'}</strong>
+          </div>
+          <div>
+            <span>Toughest Group</span>
+            <strong>{reviewWorstGroup ? formatMatchStage(reviewWorstGroup) : 'N/A'}</strong>
+          </div>
+        </div>
+        <ReviewList
+          title="Match Review"
+          description="Exact scores, right outcome calls, and misses are all preserved from the saved attempt."
+          matches={reviewMatches}
+          collapsible
+        />
+
+        <div className="completion-actions">
+          <button className="primary-button" onClick={onBackToPlay}>Back To Play</button>
+          <button className="secondary-button" onClick={onCopyLink}>Copy Share Link</button>
+        </div>
+
+        <p className="share-feedback">
+          {shareState === 'copied' && 'Copied share link'}
+          {shareState === 'shared' && 'Shared'}
+          {shareState === 'error' && 'Share failed'}
+        </p>
+      </section>
+    </main>
+  )
+}
+
 export default function App() {
   const [initialState] = useState(() => restoreGameState())
   const [initialPracticeState] = useState(() => restorePracticeState())
@@ -779,33 +953,37 @@ export default function App() {
   const [lockedMatches, setLockedMatches] = useState(initialState.lockedMatches)
   const [activeIndex, setActiveIndex] = useState(initialState.activeIndex)
   const [elapsedSeconds, setElapsedSeconds] = useState(initialState.elapsedSeconds)
-  const [activeTab, setActiveTab] = useState(() => getTabFromPath(window.location.pathname))
+  const [route, setRoute] = useState(() => getRouteState(window.location.pathname))
   const [practiceCards, setPracticeCards] = useState(initialPracticeState)
   const [practiceStep, setPracticeStep] = useState(0)
   const [practiceRevealId, setPracticeRevealId] = useState(null)
   const [selectedRatingIndex, setSelectedRatingIndex] = useState(2)
   const [shareState, setShareState] = useState('idle')
-  const [exportState, setExportState] = useState('idle')
   const [revealMatchId, setRevealMatchId] = useState(null)
+  const [sharedAttempt, setSharedAttempt] = useState(null)
+  const [sharedAttemptState, setSharedAttemptState] = useState('idle')
   const homeInputRef = useRef(null)
   const awayInputRef = useRef(null)
   const {
     leaderboard,
     leaderboardForm,
     leaderboardState,
+    leaderboardError,
     savedAttempt,
     setLeaderboardState,
     handleLeaderboardChange,
     saveLeaderboardEntry,
+    loadSharedAttempt,
   } = useLeaderboard()
+
+  const activeTab = getTabFromRoute(route)
 
   function navigateToTab(nextTab) {
     const nextPath = TAB_PATHS[nextTab] ?? TAB_PATHS.play
-    const nextState = getTabFromPath(nextPath)
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, '', nextPath)
     }
-    setActiveTab(nextState)
+    setRoute(getRouteState(nextPath))
   }
 
   function handleChange(matchId, side, value) {
@@ -834,8 +1012,38 @@ export default function App() {
     setPracticeStep(0)
     setLeaderboardState('idle')
     setShareState('idle')
-    setExportState('idle')
     setRevealMatchId(null)
+  }
+
+  function randomizeRest() {
+    const nextGuesses = { ...guesses }
+    const nextLockedMatches = { ...lockedMatches }
+    const nextPracticeCards = {}
+
+    fixtureOrder.forEach((match) => {
+      if (nextLockedMatches[match.id]) {
+        return
+      }
+
+      const guess = {
+        home: getRandomScoreDigit(),
+        away: getRandomScoreDigit(),
+      }
+      nextGuesses[match.id] = guess
+      nextLockedMatches[match.id] = true
+      nextPracticeCards[match.id] = getInitialPracticeCard(scorePrediction(match, guess))
+    })
+
+    setGuesses(nextGuesses)
+    setLockedMatches(nextLockedMatches)
+    setPracticeCards((current) => ({
+      ...current,
+      ...nextPracticeCards,
+    }))
+    setRevealMatchId(null)
+    setShareState('idle')
+    setLeaderboardState('idle')
+    navigateToTab('play')
   }
 
   const metrics = useMemo(() => {
@@ -851,7 +1059,6 @@ export default function App() {
     const exact = lockedResults.filter(({ result }) => result.exact).length
     const calls = lockedResults.filter(({ result }) => result.outcome).length
     const percentile = computePercentile(score, maxScore)
-    const rating = buildRating(percentile)
     const groupSummary = summarizeGroups(results)
 
     return {
@@ -862,7 +1069,6 @@ export default function App() {
       exact,
       calls,
       percentile,
-      rating,
       bestGroup: groupSummary.best,
       worstGroup: groupSummary.worst,
     }
@@ -877,10 +1083,19 @@ export default function App() {
     ? null
     : metrics.results.find((entry) => entry.match.id === revealMatchId) ?? null
   const allRevealed = metrics.lockedCount === fixtureOrder.length
-  const showCompletion = activeTab === 'play' && allRevealed && revealEntry === null
+  const showCompletion = route.mode === 'play' && allRevealed && revealEntry === null
   const progressPercent = (metrics.lockedCount / fixtureOrder.length) * 100
   const displayedPercentile = savedAttempt?.percentile ?? null
   const percentileSource = savedAttempt ? 'backend' : 'local'
+  const reviewUrl = savedAttempt?.share_token ? getAttemptReviewLink(savedAttempt.share_token) : ''
+  const reviewMatches = useMemo(() => (
+    buildExportPayload({
+      fixtureOrder,
+      guesses,
+      metrics,
+      elapsedSeconds,
+    }).matches
+  ), [elapsedSeconds, fixtureOrder, guesses, metrics])
 
   const practiceDeck = useMemo(() => {
     return metrics.results
@@ -922,54 +1137,15 @@ export default function App() {
   const weakPracticeCount = activePracticeDeck.filter((entry) => entry.weakness >= 3).length
   const learnedPracticeCount = practiceDeck.length - activePracticeDeck.length
 
-  async function handleShareScores() {
-    setExportState('idle')
-    const summary = `I scored ${metrics.score}/${metrics.maxScore} on World Cup Recall. Exact scores: ${metrics.exact}. Correct winners: ${metrics.calls}. Time: ${formatElapsedTime(elapsedSeconds)}.`
-    const shareText = `${summary} #WorldCupRecall`
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: 'World Cup Recall',
-          text: shareText,
-        })
-        setShareState('shared')
-        return
-      }
-
-      await navigator.clipboard.writeText(shareText)
-      setShareState('copied')
-    } catch {
-      setShareState('error')
-    }
-  }
-
-  function handleExportResults() {
-    setShareState('idle')
-
-    try {
-      const payload = buildExportPayload({
-        fixtureOrder,
-        guesses,
-        metrics,
-        elapsedSeconds,
-      })
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = 'world-cup-recall-results.json'
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
-      setExportState('saved')
-    } catch {
-      setExportState('error')
-    }
-  }
-
   async function handleSaveLeaderboard() {
+    setShareState('idle')
+    const reviewPayload = buildExportPayload({
+      fixtureOrder,
+      guesses,
+      metrics,
+      elapsedSeconds,
+    })
+
     await saveLeaderboardEntry({
       name: leaderboardForm.name,
       email: leaderboardForm.email,
@@ -981,9 +1157,29 @@ export default function App() {
       metadata: {
         bestGroup: metrics.bestGroup?.group ?? null,
         worstGroup: metrics.worstGroup?.group ?? null,
-        clientRating: metrics.rating.title,
+        reviewPayload: {
+          ...reviewPayload,
+          bestGroup: metrics.bestGroup?.group ?? null,
+          worstGroup: metrics.worstGroup?.group ?? null,
+        },
       },
     })
+  }
+
+  async function handleCopyReviewLink() {
+    const shareToken = route.mode === 'attemptReview' ? route.shareToken : savedAttempt?.share_token
+
+    if (!shareToken) {
+      setShareState('needs-save')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(getAttemptReviewLink(shareToken))
+      setShareState('copied')
+    } catch {
+      setShareState('error')
+    }
   }
 
   function handleSubmitCurrentFixture() {
@@ -1045,15 +1241,48 @@ export default function App() {
   }
 
   useEffect(() => {
-    function syncTabWithLocation() {
-      setActiveTab(getTabFromPath(window.location.pathname))
+    function syncRouteWithLocation() {
+      setRoute(getRouteState(window.location.pathname))
     }
 
-    window.addEventListener('popstate', syncTabWithLocation)
-    syncTabWithLocation()
+    window.addEventListener('popstate', syncRouteWithLocation)
+    syncRouteWithLocation()
 
-    return () => window.removeEventListener('popstate', syncTabWithLocation)
+    return () => window.removeEventListener('popstate', syncRouteWithLocation)
   }, [])
+
+  useEffect(() => {
+    if (route.mode !== 'attemptReview' || !route.shareToken) {
+      setSharedAttempt(null)
+      setSharedAttemptState('idle')
+      return
+    }
+
+    let cancelled = false
+    setSharedAttemptState('loading')
+
+    loadSharedAttempt(route.shareToken)
+      .then((attempt) => {
+        if (cancelled) {
+          return
+        }
+
+        setSharedAttempt(attempt)
+        setSharedAttemptState(attempt ? 'ready' : 'error')
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+
+        setSharedAttempt(null)
+        setSharedAttemptState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadSharedAttempt, route.mode, route.shareToken])
 
   useEffect(() => {
     if (allRevealed) {
@@ -1134,6 +1363,18 @@ export default function App() {
 
   const revealCopy = revealEntry ? getRevealCopy(revealEntry.result) : null
 
+  if (route.mode === 'attemptReview') {
+    return (
+      <AttemptReviewScreen
+        attempt={sharedAttempt}
+        reviewState={sharedAttemptState}
+        onCopyLink={handleCopyReviewLink}
+        onBackToPlay={() => navigateToTab('play')}
+        shareState={shareState}
+      />
+    )
+  }
+
   if (showCompletion) {
     return (
       <main className="app-shell app-shell-complete">
@@ -1145,18 +1386,18 @@ export default function App() {
         </div>
         <CompletionScreen
           metrics={metrics}
+          reviewMatches={reviewMatches}
+          reviewUrl={reviewUrl}
           displayedPercentile={displayedPercentile}
           percentileSource={percentileSource}
           savedAttempt={savedAttempt}
           elapsedSeconds={elapsedSeconds}
           onReset={resetGame}
-          onShare={handleShareScores}
-          onExport={handleExportResults}
+          onCopyLink={handleCopyReviewLink}
           shareState={shareState}
-          exportState={exportState}
-          leaderboard={leaderboard}
           leaderboardForm={leaderboardForm}
           leaderboardState={leaderboardState}
+          leaderboardError={leaderboardError}
           onLeaderboardChange={handleLeaderboardChange}
           onSaveLeaderboard={handleSaveLeaderboard}
         />
@@ -1245,13 +1486,24 @@ export default function App() {
                     />
                   </div>
 
-                  <button
-                    className="primary-button submit-button"
-                    disabled={!activeResult.complete}
-                    onClick={handleSubmitCurrentFixture}
-                  >
-                    Submit
-                  </button>
+                  <div className="play-actions">
+                    <button
+                      className="primary-button submit-button"
+                      disabled={!activeResult.complete}
+                      onClick={handleSubmitCurrentFixture}
+                    >
+                      Submit
+                    </button>
+                    {import.meta.env.DEV ? (
+                      <button
+                        className="secondary-button submit-button"
+                        type="button"
+                        onClick={randomizeRest}
+                      >
+                        Randomize Rest
+                      </button>
+                    ) : null}
+                  </div>
                 </>
               )}
             </article>
