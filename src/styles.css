@@ -243,6 +243,16 @@ button:disabled {
   padding: 32px;
 }
 
+.match-stage-label {
+  margin: 0 0 24px;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
 .score-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 112px minmax(0, 1fr);

@@ -108,6 +108,10 @@ function formatElapsedTime(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
+function formatMatchStage(group) {
+  return group.length === 1 ? `Group ${group}` : group
+}
+
 function getProgressTone(entry, index, activeIndex) {
   if (index === activeIndex) {
     return 'current'
@@ -673,6 +677,7 @@ export default function App() {
               </div>
             ) : (
               <>
+                <p className="match-stage-label">{formatMatchStage(activeMatch.group)}</p>
                 <div className="score-row">
                   <TeamInput
                     team={activeMatch.homeTeam}
