@@ -1214,6 +1214,72 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.site-footer {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  width: min(1320px, calc(100% - 24px));
+  margin: 28px auto 28px;
+  padding: 0 0 12px;
+}
+
+.footer-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.legal-screen {
+  width: min(840px, 100%);
+  text-align: left;
+}
+
+.legal-title {
+  margin: 10px 0 0;
+  font-family: "Fraunces", serif;
+  font-size: clamp(2.6rem, 6vw, 4.4rem);
+  line-height: 0.9;
+  font-weight: 600;
+}
+
+.legal-intro {
+  margin-left: 0;
+  margin-right: 0;
+  max-width: 54ch;
+}
+
+.legal-sections {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.legal-section {
+  padding: 20px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(213, 179, 106, 0.12);
+  background: rgba(255, 248, 232, 0.03);
+}
+
+.legal-section h2 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.legal-section p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .share-feedback {
   margin-top: 14px;
   color: var(--muted);
@@ -1523,6 +1589,12 @@ button:disabled {
     gap: 10px;
   }
 
+  .site-footer {
+    width: calc(100% - 16px);
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+
   .primary-button,
   .secondary-button,
   .practice-actions .primary-button,
@@ -1555,6 +1627,10 @@ button:disabled {
   .completion-screen {
     padding: 16px 14px;
     border-radius: 20px;
+  }
+
+  .site-footer {
+    width: calc(100% - 12px);
   }
 
   .screen-title {
@@ -1637,6 +1713,11 @@ button:disabled {
     width: 62px;
     height: 62px;
     font-size: 0.88rem;
+  }
+
+  .legal-section {
+    padding: 16px 14px;
+    border-radius: 18px;
   }
 
   .completion-note,

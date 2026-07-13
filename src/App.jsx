@@ -2,13 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { matches } from './data'
 import { useLeaderboard } from './useLeaderboard'
 
-const STORAGE_KEY = 'world-cup-recall-progress-v1'
-const PRACTICE_STORAGE_KEY = 'world-cup-recall-practice-v1'
+const STORAGE_KEY = 'tournament-recall-progress-v1'
+const PRACTICE_STORAGE_KEY = 'tournament-recall-practice-v1'
 const TAB_PATHS = {
   play: '/',
   practice: '/practice',
   leaderboard: '/leaderboard',
 }
+const INFO_PATHS = {
+  howItWorks: '/how-it-works',
+  privacy: '/privacy',
+  terms: '/terms',
+}
+const APP_NAME = 'Scoredle'
 
 function getRouteState(pathname) {
   const attemptMatch = pathname.match(/^\/attempt\/([0-9a-f-]+)$/i)
@@ -26,6 +32,18 @@ function getRouteState(pathname) {
 
   if (pathname === '/leaderboard') {
     return { mode: 'leaderboard', shareToken: null }
+  }
+
+  if (pathname === INFO_PATHS.howItWorks) {
+    return { mode: 'howItWorks', shareToken: null }
+  }
+
+  if (pathname === INFO_PATHS.privacy) {
+    return { mode: 'privacy', shareToken: null }
+  }
+
+  if (pathname === INFO_PATHS.terms) {
+    return { mode: 'terms', shareToken: null }
   }
 
   return { mode: 'play', shareToken: null }
@@ -426,7 +444,7 @@ function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) 
   })
 
   return {
-    game: 'World Cup Recall',
+    game: 'Tournament Recall',
     exportedAt: new Date().toISOString(),
     points: metrics.score,
     maxPoints: metrics.maxScore,
@@ -486,6 +504,49 @@ function formatReviewTeams(entry) {
 
 function formatReviewActualLabel(entry) {
   return `Actual ${entry.actualScore}`
+}
+
+function SiteFooter({ onNavigate }) {
+  return (
+    <footer className="site-footer">
+      <button type="button" className="footer-link" onClick={() => onNavigate(INFO_PATHS.howItWorks)}>
+        How It Works
+      </button>
+      <button type="button" className="footer-link" onClick={() => onNavigate(INFO_PATHS.privacy)}>
+        Privacy
+      </button>
+      <button type="button" className="footer-link" onClick={() => onNavigate(INFO_PATHS.terms)}>
+        Terms
+      </button>
+    </footer>
+  )
+}
+
+function InfoPage({ title, eyebrow, intro, sections, onBackHome, onNavigate }) {
+  return (
+    <main className="app-shell app-shell-complete">
+      <div className="background-wash" />
+      <section className="completion-screen leaderboard-screen-card legal-screen">
+        <p className="screen-title">{eyebrow}</p>
+        <h1 className="legal-title">{title}</h1>
+        <p className="completion-note legal-intro">{intro}</p>
+        <div className="legal-sections">
+          {sections.map((section) => (
+            <section key={section.heading} className="legal-section">
+              <h2>{section.heading}</h2>
+              {section.paragraphs.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </section>
+          ))}
+        </div>
+        <div className="completion-actions">
+          <button className="primary-button" type="button" onClick={onBackHome}>Back To Play</button>
+        </div>
+      </section>
+      <SiteFooter onNavigate={onNavigate} />
+    </main>
+  )
 }
 
 function ReviewList({ matches, title, description, collapsible = false }) {
@@ -562,8 +623,8 @@ function CompletionScreen({
 
   return (
     <section className="completion-screen">
-      <p className="screen-title">WORLD CUP RECALL</p>
-      <h2 className="hero-title">WORLD CUP RECALL</h2>
+      <p className="screen-title">TOURNAMENT RECALL</p>
+      <h2 className="hero-title">TOURNAMENT RECALL</h2>
       <p className="completion-points-label">Points</p>
       <h1>{metrics.score} / {metrics.maxScore}</h1>
       <p className="completion-rank">{formatPercentileTop(displayedPercentile) ?? 'Save your score to see percentile'}</p>
@@ -980,6 +1041,10 @@ export default function App() {
 
   function navigateToTab(nextTab) {
     const nextPath = TAB_PATHS[nextTab] ?? TAB_PATHS.play
+    navigateToPath(nextPath)
+  }
+
+  function navigateToPath(nextPath) {
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, '', nextPath)
     }
@@ -1013,37 +1078,6 @@ export default function App() {
     setLeaderboardState('idle')
     setShareState('idle')
     setRevealMatchId(null)
-  }
-
-  function randomizeRest() {
-    const nextGuesses = { ...guesses }
-    const nextLockedMatches = { ...lockedMatches }
-    const nextPracticeCards = {}
-
-    fixtureOrder.forEach((match) => {
-      if (nextLockedMatches[match.id]) {
-        return
-      }
-
-      const guess = {
-        home: getRandomScoreDigit(),
-        away: getRandomScoreDigit(),
-      }
-      nextGuesses[match.id] = guess
-      nextLockedMatches[match.id] = true
-      nextPracticeCards[match.id] = getInitialPracticeCard(scorePrediction(match, guess))
-    })
-
-    setGuesses(nextGuesses)
-    setLockedMatches(nextLockedMatches)
-    setPracticeCards((current) => ({
-      ...current,
-      ...nextPracticeCards,
-    }))
-    setRevealMatchId(null)
-    setShareState('idle')
-    setLeaderboardState('idle')
-    navigateToTab('play')
   }
 
   const metrics = useMemo(() => {
@@ -1241,6 +1275,45 @@ export default function App() {
   }
 
   useEffect(() => {
+    const metaDescription = document.querySelector('meta[name="description"]')
+    const pageMap = {
+      play: {
+        title: `${APP_NAME} Scoreboard`,
+        description: 'Guess 2026 tournament final scores and see how your card stacks up.',
+      },
+      practice: {
+        title: `${APP_NAME} Practice`,
+        description: 'Review tough matches and reinforce score memory with practice cards.',
+      },
+      leaderboard: {
+        title: `${APP_NAME} Leaderboard`,
+        description: 'Browse top saved scores and compare accuracy and speed.',
+      },
+      howItWorks: {
+        title: `How It Works | ${APP_NAME}`,
+        description: 'Learn how scoring, practice mode, and saved results work in Tournament Recall.',
+      },
+      privacy: {
+        title: `Privacy | ${APP_NAME}`,
+        description: 'Read how Tournament Recall handles browser storage, saved scores, and analytics.',
+      },
+      terms: {
+        title: `Terms | ${APP_NAME}`,
+        description: 'Review the operating terms for using Tournament Recall and shared links.',
+      },
+      attemptReview: {
+        title: `Shared Attempt | ${APP_NAME}`,
+        description: 'Open a saved Tournament Recall attempt and review each match pick.',
+      },
+    }
+    const page = pageMap[route.mode] ?? pageMap.play
+    document.title = page.title
+    if (metaDescription) {
+      metaDescription.setAttribute('content', page.description)
+    }
+  }, [route.mode])
+
+  useEffect(() => {
     function syncRouteWithLocation() {
       setRoute(getRouteState(window.location.pathname))
     }
@@ -1363,45 +1436,143 @@ export default function App() {
 
   const revealCopy = revealEntry ? getRevealCopy(revealEntry.result) : null
 
+  if (route.mode === 'howItWorks') {
+    return (
+      <InfoPage
+        title="How It Works"
+        eyebrow={APP_NAME}
+        intro="Pick the final score for each match, submit fixtures one at a time, and earn points based on accuracy."
+        sections={[
+          {
+            heading: 'Scoring',
+            paragraphs: [
+              'Exact team goals score highest. Correct winner or draw calls add points, and matching the goal difference gives partial credit.',
+              'Your total score is measured across all fixtures and can be compared against saved entries on the leaderboard.',
+            ],
+          },
+          {
+            heading: 'Practice Mode',
+            paragraphs: [
+              'Practice mode turns answered matches into flash cards so weaker recalls stay active longer and easier recalls retire faster.',
+            ],
+          },
+          {
+            heading: 'Saved Results',
+            paragraphs: [
+              'Saving a score stores your name, email, points, timing, and review data so the result can appear on the leaderboard and be shared.',
+            ],
+          },
+        ]}
+        onBackHome={() => navigateToTab('play')}
+        onNavigate={navigateToPath}
+      />
+    )
+  }
+
+  if (route.mode === 'privacy') {
+    return (
+      <InfoPage
+        title="Privacy"
+        eyebrow={APP_NAME}
+        intro="This page summarizes what the app stores and how that data is used."
+        sections={[
+          {
+            heading: 'Browser Storage',
+            paragraphs: [
+              'Current play progress and practice card state are stored locally in your browser so you can return without losing progress.',
+            ],
+          },
+          {
+            heading: 'Leaderboard Data',
+            paragraphs: [
+              'When you save a score, the app sends your name, email, points, timing, and match review details to the backend leaderboard.',
+              'Email is used privately for attempt tracking and is not intended for public display in the interface.',
+            ],
+          },
+        ]}
+        onBackHome={() => navigateToTab('play')}
+        onNavigate={navigateToPath}
+      />
+    )
+  }
+
+  if (route.mode === 'terms') {
+    return (
+      <InfoPage
+        title="Terms"
+        eyebrow={APP_NAME}
+        intro="These terms provide a simple baseline for using the app."
+        sections={[
+          {
+            heading: 'Use Of Service',
+            paragraphs: [
+              'The app is provided for entertainment and informal score prediction. Features, availability, and leaderboard rules may change without notice.',
+            ],
+          },
+          {
+            heading: 'Submitted Information',
+            paragraphs: [
+              'You are responsible for the accuracy and legality of the name and email you submit. Do not use misleading, abusive, or unauthorized information.',
+            ],
+          },
+          {
+            heading: 'Shared Links',
+            paragraphs: [
+              'Anyone with a valid saved attempt link may be able to view that shared result and its match review details.',
+            ],
+          },
+        ]}
+        onBackHome={() => navigateToTab('play')}
+        onNavigate={navigateToPath}
+      />
+    )
+  }
+
   if (route.mode === 'attemptReview') {
     return (
-      <AttemptReviewScreen
-        attempt={sharedAttempt}
-        reviewState={sharedAttemptState}
-        onCopyLink={handleCopyReviewLink}
-        onBackToPlay={() => navigateToTab('play')}
-        shareState={shareState}
-      />
+      <>
+        <AttemptReviewScreen
+          attempt={sharedAttempt}
+          reviewState={sharedAttemptState}
+          onCopyLink={handleCopyReviewLink}
+          onBackToPlay={() => navigateToTab('play')}
+          shareState={shareState}
+        />
+        <SiteFooter onNavigate={navigateToPath} />
+      </>
     )
   }
 
   if (showCompletion) {
     return (
-      <main className="app-shell app-shell-complete">
-        <div className="background-wash" />
-        <div className="tab-row tab-row-floating">
-          <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('play')}>Play</button>
-          <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('practice')}>Practice</button>
-          <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('leaderboard')}>Leaderboard</button>
-        </div>
-        <CompletionScreen
-          metrics={metrics}
-          reviewMatches={reviewMatches}
-          reviewUrl={reviewUrl}
-          displayedPercentile={displayedPercentile}
-          percentileSource={percentileSource}
-          savedAttempt={savedAttempt}
-          elapsedSeconds={elapsedSeconds}
-          onReset={resetGame}
-          onCopyLink={handleCopyReviewLink}
-          shareState={shareState}
-          leaderboardForm={leaderboardForm}
-          leaderboardState={leaderboardState}
-          leaderboardError={leaderboardError}
-          onLeaderboardChange={handleLeaderboardChange}
-          onSaveLeaderboard={handleSaveLeaderboard}
-        />
-      </main>
+      <>
+        <main className="app-shell app-shell-complete">
+          <div className="background-wash" />
+          <div className="tab-row tab-row-floating">
+            <button className={`tab-button ${activeTab === 'play' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('play')}>Play</button>
+            <button className={`tab-button ${activeTab === 'practice' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('practice')}>Practice</button>
+            <button className={`tab-button ${activeTab === 'leaderboard' ? 'is-active' : ''}`} type="button" onClick={() => navigateToTab('leaderboard')}>Leaderboard</button>
+          </div>
+          <CompletionScreen
+            metrics={metrics}
+            reviewMatches={reviewMatches}
+            reviewUrl={reviewUrl}
+            displayedPercentile={displayedPercentile}
+            percentileSource={percentileSource}
+            savedAttempt={savedAttempt}
+            elapsedSeconds={elapsedSeconds}
+            onReset={resetGame}
+            onCopyLink={handleCopyReviewLink}
+            shareState={shareState}
+            leaderboardForm={leaderboardForm}
+            leaderboardState={leaderboardState}
+            leaderboardError={leaderboardError}
+            onLeaderboardChange={handleLeaderboardChange}
+            onSaveLeaderboard={handleSaveLeaderboard}
+          />
+        </main>
+        <SiteFooter onNavigate={navigateToPath} />
+      </>
     )
   }
 
@@ -1411,7 +1582,7 @@ export default function App() {
 
       <header className="game-header">
         <div className="header-copy">
-          <h1 className="hero-title">WORLD CUP RECALL 2026</h1>
+          <h1 className="hero-title">TOURNAMENT RECALL 2026</h1>
           <p className="header-kicker">Host countries: USA, Canada, Mexico</p>
         </div>
         <div className="header-meta">
@@ -1494,15 +1665,6 @@ export default function App() {
                     >
                       Submit
                     </button>
-                    {import.meta.env.DEV ? (
-                      <button
-                        className="secondary-button submit-button"
-                        type="button"
-                        onClick={randomizeRest}
-                      >
-                        Randomize Rest
-                      </button>
-                    ) : null}
                   </div>
                 </>
               )}
@@ -1529,6 +1691,7 @@ export default function App() {
           onJumpToPlay={() => navigateToTab('play')}
         />
       )}
+      <SiteFooter onNavigate={navigateToPath} />
     </main>
   )
 }
