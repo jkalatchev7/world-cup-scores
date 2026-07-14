@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 
 const LEADERBOARD_NAME_COOKIE = 'world_cup_recall_name'
 const LEADERBOARD_EMAIL_COOKIE = 'world_cup_recall_email'
+const SAVED_ATTEMPT_STORAGE_KEY = 'world_cup_recall_saved_attempt_v1'
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 function readCookie(name) {
@@ -89,6 +90,39 @@ function mapSharedAttemptRow(row) {
   }
 }
 
+function restoreSavedAttempt() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SAVED_ATTEMPT_STORAGE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    return mapSavedAttemptRow(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function persistSavedAttempt(attempt) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    if (attempt) {
+      window.localStorage.setItem(SAVED_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt))
+    } else {
+      window.localStorage.removeItem(SAVED_ATTEMPT_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore storage failures and keep the in-memory state.
+  }
+}
+
 export function useLeaderboard() {
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderboardForm, setLeaderboardForm] = useState(() => ({
@@ -96,7 +130,7 @@ export function useLeaderboard() {
     email: readCookie(LEADERBOARD_EMAIL_COOKIE),
   }))
   const [leaderboardState, setLeaderboardState] = useState('idle')
-  const [savedAttempt, setSavedAttempt] = useState(null)
+  const [savedAttempt, setSavedAttempt] = useState(() => restoreSavedAttempt())
   const [attemptPreview, setAttemptPreview] = useState(null)
   const [attemptPreviewState, setAttemptPreviewState] = useState('idle')
   const [leaderboardError, setLeaderboardError] = useState('')
@@ -163,6 +197,7 @@ export function useLeaderboard() {
       writeCookie(LEADERBOARD_NAME_COOKIE, name)
       writeCookie(LEADERBOARD_EMAIL_COOKIE, email)
       setSavedAttempt(attempt)
+      persistSavedAttempt(attempt)
       setAttemptPreview(null)
       setAttemptPreviewState('idle')
       if (attempt?.attempt_id) {
@@ -214,6 +249,7 @@ export function useLeaderboard() {
     setLeaderboardState('idle')
     setLeaderboardError('')
     setSavedAttempt(null)
+    persistSavedAttempt(null)
     setLeaderboardForm((current) => ({
       ...current,
       [name]: value,
@@ -237,6 +273,12 @@ export function useLeaderboard() {
       setLeaderboardState('error')
     })
   }, [])
+
+  useEffect(() => {
+    if (savedAttempt) {
+      setLeaderboardState('saved')
+    }
+  }, [savedAttempt])
 
   return {
     leaderboard,

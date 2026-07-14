@@ -808,7 +808,6 @@ function CompletionScreen({
             </div>
           ) : null}
           <p className="leaderboard-feedback">
-            {leaderboardState === 'saved' && savedAttempt && `Result saved as ${formatBestAttemptLabel(savedAttempt.attempt_index)}`}
             {leaderboardState === 'invalid' && 'Enter a valid name and email'}
             {leaderboardState === 'error' && (leaderboardError || 'Could not save leaderboard entry')}
           </p>
