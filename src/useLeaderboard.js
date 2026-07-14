@@ -97,6 +97,8 @@ export function useLeaderboard() {
   }))
   const [leaderboardState, setLeaderboardState] = useState('idle')
   const [savedAttempt, setSavedAttempt] = useState(null)
+  const [attemptPreview, setAttemptPreview] = useState(null)
+  const [attemptPreviewState, setAttemptPreviewState] = useState('idle')
   const [leaderboardError, setLeaderboardError] = useState('')
 
   async function loadLeaderboard() {
@@ -115,7 +117,7 @@ export function useLeaderboard() {
     setLeaderboard(data.map(mapLeaderboardRow).sort(compareLeaderboardEntries))
   }
 
-  async function loadLeaderboardNeighbors(attemptId, radius = 3) {
+  async function loadLeaderboardNeighbors(attemptId, radius = 5) {
     const { data, error } = await supabase.rpc('get_leaderboard_neighbors', {
       p_attempt_id: attemptId,
       p_radius: radius,
@@ -161,6 +163,8 @@ export function useLeaderboard() {
       writeCookie(LEADERBOARD_NAME_COOKIE, name)
       writeCookie(LEADERBOARD_EMAIL_COOKIE, email)
       setSavedAttempt(attempt)
+      setAttemptPreview(null)
+      setAttemptPreviewState('idle')
       if (attempt?.attempt_id) {
         await loadLeaderboardNeighbors(attempt.attempt_id)
       } else {
@@ -176,6 +180,33 @@ export function useLeaderboard() {
       setLeaderboardState('error')
       return null
     }
+  }
+
+  async function loadAttemptPreview(entry) {
+    setAttemptPreviewState('loading')
+
+    const { data, error } = await supabase.rpc('preview_attempt_rank', {
+      p_points: entry.points,
+      p_max_points: entry.maxPoints,
+      p_exact_scores: entry.exactScores,
+      p_correct_winners: entry.correctWinners,
+      p_elapsed_seconds: entry.elapsedSeconds,
+      p_game_slug: entry.gameSlug ?? 'world-cup-recall',
+    })
+
+    if (error || !data?.[0]) {
+      setAttemptPreviewState('error')
+      throw error ?? new Error('Could not preview leaderboard rank')
+    }
+
+    setAttemptPreview(data[0])
+    setAttemptPreviewState('ready')
+    return data[0]
+  }
+
+  function resetAttemptPreview() {
+    setAttemptPreview(null)
+    setAttemptPreviewState('idle')
   }
 
   function handleLeaderboardChange(event) {
@@ -213,11 +244,15 @@ export function useLeaderboard() {
     leaderboardState,
     leaderboardError,
     savedAttempt,
+    attemptPreview,
+    attemptPreviewState,
     setLeaderboardState,
     handleLeaderboardChange,
     saveLeaderboardEntry,
     loadLeaderboard,
     loadLeaderboardNeighbors,
+    loadAttemptPreview,
+    resetAttemptPreview,
     loadSharedAttempt,
   }
 }

@@ -313,6 +313,13 @@ function getRandomScoreDigit() {
   return String(Math.floor(Math.random() * 8))
 }
 
+function createRandomGuess() {
+  return {
+    home: getRandomScoreDigit(),
+    away: getRandomScoreDigit(),
+  }
+}
+
 function restorePracticeState() {
   if (typeof window === 'undefined') {
     return {}
@@ -568,14 +575,21 @@ function formatBestAttemptLabel(attemptIndex) {
   return `Attempt #${attemptIndex ?? 1}`
 }
 
-function formatPercentileTop(percentile) {
-  if (!Number.isFinite(percentile)) {
+function formatPercentileFromRank(rank, totalEntries) {
+  if (!Number.isFinite(rank) || !Number.isFinite(totalEntries) || totalEntries <= 0) {
     return null
   }
 
-  const topPercent = Math.max(0, 100 - percentile)
-  const rounded = topPercent % 1 === 0 ? topPercent.toFixed(0) : topPercent.toFixed(2)
-  return `Top ${rounded}%`
+  const percentile = Math.max(0, ((Number(totalEntries) - Number(rank)) / Number(totalEntries)) * 100)
+  if (percentile >= 50) {
+    const topPercentile = Math.max(1, 100 - percentile)
+    const roundedTop = topPercentile % 1 === 0 ? topPercentile.toFixed(0) : topPercentile.toFixed(2)
+    return `In the top ${roundedTop}%`
+  }
+
+  const bottomPercentile = Math.max(1, percentile)
+  const roundedBottom = bottomPercentile % 1 === 0 ? bottomPercentile.toFixed(0) : bottomPercentile.toFixed(2)
+  return `In the bottom ${roundedBottom}%`
 }
 
 function getResultStatusLabel(entry) {
@@ -696,9 +710,12 @@ function CompletionScreen({
   metrics,
   reviewMatches,
   reviewUrl,
-  displayedPercentile,
+  displayedPercentileLabel,
+  displayedRank,
+  displayedTotalEntries,
   percentileSource,
   savedAttempt,
+  leaderboard,
   elapsedSeconds,
   onReset,
   onCopyLink,
@@ -710,6 +727,7 @@ function CompletionScreen({
   onSaveLeaderboard,
 }) {
   const hasSavedAttempt = Boolean(savedAttempt) && leaderboardState === 'saved'
+  const currentLeaderboardEntry = leaderboard.find((entry) => entry.isCurrent) ?? null
 
   return (
     <section className="completion-screen">
@@ -717,7 +735,8 @@ function CompletionScreen({
       <h2 className="hero-title">Scoredle 2026</h2>
       <p className="completion-points-label">Points</p>
       <h1>{metrics.score} / {metrics.maxScore}</h1>
-      <p className="completion-rank">{formatPercentileTop(displayedPercentile) ?? 'Save your score to see percentile'}</p>
+      <p className="completion-rank">{displayedPercentileLabel ?? 'Calculating percentile...'}</p>
+      {displayedRank && displayedTotalEntries ? <p className="completion-note">Projected rank: #{displayedRank} of {displayedTotalEntries}</p> : null}
 
       <div className="completion-grid">
         <div>
@@ -754,8 +773,10 @@ function CompletionScreen({
             {!hasSavedAttempt ? (
               <p>
                 Email is used privately and not shown.
-                {percentileSource === 'backend' && savedAttempt
+                {percentileSource === 'saved' && savedAttempt
                   ? ` Saved as attempt ${savedAttempt.attempt_index}.`
+                  : percentileSource === 'preview' && displayedRank
+                    ? ''
                   : ' Percentile becomes exact after saving.'}
               </p>
             ) : null}
@@ -801,6 +822,35 @@ function CompletionScreen({
           ) : null}
         </div>
       </section>
+
+      {hasSavedAttempt && leaderboard.length > 0 ? (
+        <section className="leaderboard-list leaderboard-mini">
+          <div className="leaderboard-copy">
+            <p className="screen-title">Mini Leaderboard</p>
+            <h3>Players around you</h3>
+            <p>
+              {currentLeaderboardEntry
+                ? `You are #${currentLeaderboardEntry.rank}.`
+                : 'Your latest saved attempt is highlighted in the local rank window.'}
+            </p>
+          </div>
+          <div className="leaderboard-rows">
+            {leaderboard.map((entry, index) => (
+              <div className={`leaderboard-row ${entry.isCurrent ? 'is-current' : ''}`} key={entry.attemptId ?? `${entry.email}-${entry.createdAt}`}>
+                <span className="leaderboard-rank">#{entry.rank ?? index + 1}</span>
+                <div className="leaderboard-person">
+                  <strong>{entry.name}</strong>
+                  <span>{entry.isCurrent ? 'Your latest attempt' : formatBestAttemptLabel(entry.attemptIndex)}</span>
+                </div>
+                <div className="leaderboard-score">
+                  <strong>{entry.points} pts</strong>
+                  <span>{formatElapsedTime(entry.elapsedSeconds)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <ReviewList
         title="Exam Review"
@@ -1092,7 +1142,7 @@ function AttemptReviewScreen({ attempt, reviewState, onCopyLink, onBackToPlay, s
         <p className="screen-title">Saved Attempt</p>
         <h2>{attempt.name}</h2>
         <p className="completion-note">{formatBestAttemptLabel(attempt.attemptIndex)}</p>
-        <p className="completion-rank">{formatPercentileTop(attempt.percentile) ?? 'Saved result'}</p>
+        <p className="completion-rank">{attempt.percentile ? `Top ${Math.max(0, 100 - attempt.percentile).toFixed(attempt.percentile % 1 === 0 ? 0 : 2)}%` : 'Saved result'}</p>
 
         <div className="completion-grid">
           <div>
@@ -1168,9 +1218,13 @@ export default function App() {
     leaderboardState,
     leaderboardError,
     savedAttempt,
+    attemptPreview,
+    attemptPreviewState,
     setLeaderboardState,
     handleLeaderboardChange,
     saveLeaderboardEntry,
+    loadAttemptPreview,
+    resetAttemptPreview,
     loadSharedAttempt,
   } = useLeaderboard()
 
@@ -1227,6 +1281,36 @@ export default function App() {
     setRevealMatchId(null)
   }
 
+  function handleRandomizeAllResults() {
+    const nextGuesses = Object.fromEntries(matches.map((match) => [
+      match.id,
+      lockedMatches[match.id] ? guesses[match.id] : createRandomGuess(),
+    ]))
+
+    const nextResults = fixtureOrder.map((match) => ({
+      match,
+      guess: nextGuesses[match.id],
+      locked: Boolean(lockedMatches[match.id]),
+      result: scorePrediction(match, nextGuesses[match.id]),
+    }))
+
+    setGuesses(nextGuesses)
+    setLockedMatches((current) => Object.fromEntries(matches.map((match) => [
+      match.id,
+      current[match.id] || nextResults.find((entry) => entry.match.id === match.id)?.result.complete || false,
+    ])))
+    setPracticeCards((current) => Object.fromEntries(matches.map((match) => {
+      const nextEntry = nextResults.find((entry) => entry.match.id === match.id)
+      const shouldKeepCurrent = current[match.id] || !nextEntry?.result.complete
+
+      return [
+        match.id,
+        shouldKeepCurrent ? current[match.id] : getInitialPracticeCard(nextEntry.result),
+      ]
+    }).filter(([, value]) => Boolean(value))))
+    setRevealMatchId(null)
+  }
+
   const metrics = useMemo(() => {
     const results = fixtureOrder.map((match) => ({
       match,
@@ -1266,8 +1350,12 @@ export default function App() {
   const allRevealed = metrics.lockedCount === fixtureOrder.length
   const showCompletion = route.mode === 'play' && allRevealed && revealEntry === null
   const progressPercent = (metrics.lockedCount / fixtureOrder.length) * 100
-  const displayedPercentile = savedAttempt?.percentile ?? null
-  const percentileSource = savedAttempt ? 'backend' : 'local'
+  const displayedRank = savedAttempt
+    ? leaderboard.find((entry) => entry.isCurrent)?.rank ?? null
+    : attemptPreview?.rank ?? null
+  const displayedTotalEntries = attemptPreview?.total_entries ?? null
+  const displayedPercentileLabel = formatPercentileFromRank(displayedRank, displayedTotalEntries)
+  const percentileSource = savedAttempt ? 'saved' : attemptPreview ? 'preview' : 'local'
   const reviewUrl = savedAttempt?.share_token ? getAttemptReviewLink(savedAttempt.share_token) : ''
   const reviewMatches = useMemo(() => (
     buildExportPayload({
@@ -1346,6 +1434,38 @@ export default function App() {
       },
     })
   }
+
+  useEffect(() => {
+    if (!showCompletion) {
+      resetAttemptPreview()
+      return
+    }
+
+    if (savedAttempt || attemptPreviewState === 'loading' || attemptPreview) {
+      return
+    }
+
+    loadAttemptPreview({
+      points: metrics.score,
+      maxPoints: metrics.maxScore,
+      elapsedSeconds,
+      exactScores: metrics.exact,
+      correctWinners: metrics.calls,
+      gameSlug: 'world-cup-recall',
+    }).catch(() => {})
+  }, [
+    attemptPreview,
+    attemptPreviewState,
+    elapsedSeconds,
+    loadAttemptPreview,
+    metrics.calls,
+    metrics.exact,
+    metrics.maxScore,
+    metrics.score,
+    resetAttemptPreview,
+    savedAttempt,
+    showCompletion,
+  ])
 
   async function handleCopyReviewLink() {
     const shareToken = route.mode === 'attemptReview' ? route.shareToken : savedAttempt?.share_token
@@ -1791,9 +1911,12 @@ export default function App() {
             metrics={metrics}
             reviewMatches={reviewMatches}
             reviewUrl={reviewUrl}
-            displayedPercentile={displayedPercentile}
+            displayedPercentileLabel={displayedPercentileLabel}
+            displayedRank={displayedRank}
+            displayedTotalEntries={displayedTotalEntries}
             percentileSource={percentileSource}
             savedAttempt={savedAttempt}
+            leaderboard={leaderboard}
             elapsedSeconds={elapsedSeconds}
             onReset={resetGame}
             onCopyLink={handleCopyReviewLink}
@@ -1893,9 +2016,18 @@ export default function App() {
 
                   <div className="play-actions">
                     <button
+                      className="secondary-button submit-button"
+                      disabled={metrics.lockedCount === fixtureOrder.length}
+                      onClick={handleRandomizeAllResults}
+                      type="button"
+                    >
+                      Randomize Rest
+                    </button>
+                    <button
                       className="primary-button submit-button"
                       disabled={!activeResult.complete}
                       onClick={handleSubmitCurrentFixture}
+                      type="button"
                     >
                       Submit
                     </button>
