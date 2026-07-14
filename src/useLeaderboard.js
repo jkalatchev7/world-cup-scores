@@ -37,6 +37,7 @@ function compareLeaderboardEntries(left, right) {
 
 function mapLeaderboardRow(row) {
   return {
+    attemptId: row.attempt_id,
     name: row.name,
     email: row.email,
     points: row.points,
@@ -47,6 +48,8 @@ function mapLeaderboardRow(row) {
     attemptIndex: row.attempt_index,
     attempts: row.total_attempts,
     createdAt: row.created_at,
+    rank: row.rank ?? null,
+    isCurrent: Boolean(row.is_current),
   }
 }
 
@@ -112,6 +115,19 @@ export function useLeaderboard() {
     setLeaderboard(data.map(mapLeaderboardRow).sort(compareLeaderboardEntries))
   }
 
+  async function loadLeaderboardNeighbors(attemptId, radius = 3) {
+    const { data, error } = await supabase.rpc('get_leaderboard_neighbors', {
+      p_attempt_id: attemptId,
+      p_radius: radius,
+    })
+
+    if (error || !data) {
+      throw error ?? new Error('Could not load nearby leaderboard entries')
+    }
+
+    setLeaderboard(data.map(mapLeaderboardRow))
+  }
+
   async function saveLeaderboardEntry(entry) {
     const name = entry.name.trim()
     const email = entry.email.trim().toLowerCase()
@@ -145,7 +161,11 @@ export function useLeaderboard() {
       writeCookie(LEADERBOARD_NAME_COOKIE, name)
       writeCookie(LEADERBOARD_EMAIL_COOKIE, email)
       setSavedAttempt(attempt)
-      await loadLeaderboard()
+      if (attempt?.attempt_id) {
+        await loadLeaderboardNeighbors(attempt.attempt_id)
+      } else {
+        await loadLeaderboard()
+      }
       setLeaderboardState('saved')
       return attempt
     } catch (error) {
@@ -197,6 +217,7 @@ export function useLeaderboard() {
     handleLeaderboardChange,
     saveLeaderboardEntry,
     loadLeaderboard,
+    loadLeaderboardNeighbors,
     loadSharedAttempt,
   }
 }

@@ -1110,9 +1110,20 @@ button:disabled {
   border-top: 1px solid rgba(213, 179, 106, 0.12);
 }
 
+.leaderboard-row.is-current {
+  padding: 14px 12px;
+  border: 1px solid rgba(213, 179, 106, 0.32);
+  border-radius: 16px;
+  background: rgba(255, 248, 232, 0.06);
+}
+
 .leaderboard-row:first-child {
   border-top: 0;
   padding-top: 0;
+}
+
+.leaderboard-row.is-current:first-child {
+  padding-top: 14px;
 }
 
 .leaderboard-rank {

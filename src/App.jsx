@@ -968,23 +968,29 @@ function PracticeScreen({
 }
 
 function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
+  const hasCurrentEntry = leaderboard.some((entry) => entry.isCurrent)
+
   return (
     <section className="leaderboard-screen">
       <article className="completion-screen leaderboard-screen-card">
         <div className="leaderboard-copy">
           <p className="screen-title">Leaderboard</p>
-          <h2>Top scores</h2>
-          <p>Higher score wins. Matching scores are ordered by faster time.</p>
+          <h2>{hasCurrentEntry ? 'Players around your latest attempt' : 'Top scores'}</h2>
+          <p>
+            {hasCurrentEntry
+              ? 'Higher score wins. Matching scores are ordered by faster time, and your latest save is centered in the list.'
+              : 'Higher score wins. Matching scores are ordered by faster time.'}
+          </p>
         </div>
 
         {leaderboard.length > 0 ? (
           <div className="leaderboard-rows">
             {leaderboard.map((entry, index) => (
-              <div className="leaderboard-row" key={`${entry.email}-${entry.createdAt}`}>
-                <span className="leaderboard-rank">#{index + 1}</span>
+              <div className={`leaderboard-row ${entry.isCurrent ? 'is-current' : ''}`} key={entry.attemptId ?? `${entry.email}-${entry.createdAt}`}>
+                <span className="leaderboard-rank">#{entry.rank ?? index + 1}</span>
                 <div className="leaderboard-person">
                   <strong>{entry.name}</strong>
-                  <span>{formatBestAttemptLabel(entry.attemptIndex)}</span>
+                  <span>{entry.isCurrent ? 'Your latest attempt' : formatBestAttemptLabel(entry.attemptIndex)}</span>
                 </div>
                 <div className="leaderboard-score">
                   <strong>{entry.points} pts</strong>
