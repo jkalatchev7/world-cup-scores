@@ -16,6 +16,55 @@ const INFO_PATHS = {
   terms: '/terms',
 }
 const APP_NAME = 'Scoredle'
+const DEFAULT_OG_IMAGE = '/og-image.svg'
+const SITE_URL = (
+  import.meta.env.VITE_SITE_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : '')
+).replace(/\/+$/, '')
+
+function getAbsoluteUrl(path) {
+  if (!SITE_URL) {
+    return path
+  }
+
+  return new URL(path, `${SITE_URL}/`).toString()
+}
+
+function upsertHeadTag(selector, createTag, attributes) {
+  let element = document.head.querySelector(selector)
+
+  if (!element) {
+    element = document.createElement(createTag)
+    document.head.appendChild(element)
+  }
+
+  Object.entries(attributes).forEach(([name, value]) => {
+    element.setAttribute(name, value)
+  })
+
+  return element
+}
+
+function updateMetaTag(selector, attributes) {
+  return upsertHeadTag(selector, 'meta', attributes)
+}
+
+function updateLinkTag(selector, attributes) {
+  return upsertHeadTag(selector, 'link', attributes)
+}
+
+function updateStructuredData(id, payload) {
+  let script = document.head.querySelector(`#${id}`)
+
+  if (!script) {
+    script = document.createElement('script')
+    script.id = id
+    script.type = 'application/ld+json'
+    document.head.appendChild(script)
+  }
+
+  script.textContent = JSON.stringify(payload)
+}
 
 function getRouteState(pathname) {
   const attemptMatch = pathname.match(/^\/attempt\/([0-9a-f-]+)$/i)
@@ -52,6 +101,34 @@ function getRouteState(pathname) {
 
 function getTabFromRoute(route) {
   return route.mode === 'attemptReview' ? 'play' : route.mode
+}
+
+function getRoutePath(route) {
+  if (route.mode === 'attemptReview' && route.shareToken) {
+    return `/attempt/${route.shareToken}`
+  }
+
+  if (route.mode === 'practice') {
+    return TAB_PATHS.practice
+  }
+
+  if (route.mode === 'leaderboard') {
+    return TAB_PATHS.leaderboard
+  }
+
+  if (route.mode === 'howItWorks') {
+    return INFO_PATHS.howItWorks
+  }
+
+  if (route.mode === 'privacy') {
+    return INFO_PATHS.privacy
+  }
+
+  if (route.mode === 'terms') {
+    return INFO_PATHS.terms
+  }
+
+  return TAB_PATHS.play
 }
 
 const flagOverrides = {
@@ -1339,7 +1416,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    const metaDescription = document.querySelector('meta[name="description"]')
     const pageMap = {
       play: {
         title: `${APP_NAME} Scoreboard`,
@@ -1371,11 +1447,94 @@ export default function App() {
       },
     }
     const page = pageMap[route.mode] ?? pageMap.play
+    const canonicalPath = getRoutePath(route)
+    const canonicalUrl = getAbsoluteUrl(canonicalPath)
+    const ogImageUrl = getAbsoluteUrl(DEFAULT_OG_IMAGE)
+
     document.title = page.title
-    if (metaDescription) {
-      metaDescription.setAttribute('content', page.description)
-    }
-  }, [route.mode])
+    updateMetaTag('meta[name="description"]', {
+      name: 'description',
+      content: page.description,
+    })
+    updateMetaTag('meta[name="robots"]', {
+      name: 'robots',
+      content: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
+    })
+    updateLinkTag('link[rel="canonical"]', {
+      rel: 'canonical',
+      href: canonicalUrl,
+    })
+    updateMetaTag('meta[property="og:type"]', {
+      property: 'og:type',
+      content: 'website',
+    })
+    updateMetaTag('meta[property="og:site_name"]', {
+      property: 'og:site_name',
+      content: APP_NAME,
+    })
+    updateMetaTag('meta[property="og:title"]', {
+      property: 'og:title',
+      content: page.title,
+    })
+    updateMetaTag('meta[property="og:description"]', {
+      property: 'og:description',
+      content: page.description,
+    })
+    updateMetaTag('meta[property="og:url"]', {
+      property: 'og:url',
+      content: canonicalUrl,
+    })
+    updateMetaTag('meta[property="og:image"]', {
+      property: 'og:image',
+      content: ogImageUrl,
+    })
+    updateMetaTag('meta[property="og:image:type"]', {
+      property: 'og:image:type',
+      content: 'image/svg+xml',
+    })
+    updateMetaTag('meta[property="og:image:alt"]', {
+      property: 'og:image:alt',
+      content: 'Scoredle scoreboard preview artwork',
+    })
+    updateMetaTag('meta[name="twitter:card"]', {
+      name: 'twitter:card',
+      content: 'summary_large_image',
+    })
+    updateMetaTag('meta[name="twitter:title"]', {
+      name: 'twitter:title',
+      content: page.title,
+    })
+    updateMetaTag('meta[name="twitter:description"]', {
+      name: 'twitter:description',
+      content: page.description,
+    })
+    updateMetaTag('meta[name="twitter:image"]', {
+      name: 'twitter:image',
+      content: ogImageUrl,
+    })
+
+    updateStructuredData('scoredle-structured-data', {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'Scoredle 2026',
+      url: getAbsoluteUrl('/'),
+      description: 'A World Cup memory game where players predict exact final scores and compare results.',
+      inLanguage: 'en',
+      potentialAction: {
+        '@type': 'PlayAction',
+        target: canonicalUrl,
+        name: page.title,
+      },
+      mainEntity: {
+        '@type': 'Game',
+        name: 'Scoredle 2026',
+        description: page.description,
+        url: canonicalUrl,
+        image: ogImageUrl,
+        genre: ['Sports game', 'Trivia game', 'Memory game'],
+      },
+    })
+  }, [route.mode, route.shareToken])
 
   useEffect(() => {
     function syncRouteWithLocation() {

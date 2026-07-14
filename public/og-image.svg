@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Scoredle social preview</title>
+  <desc id="desc">Preview image for the Scoredle 2026 World Cup score prediction game.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#101814" />
+      <stop offset="55%" stop-color="#17211c" />
+      <stop offset="100%" stop-color="#2b3a2e" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="20%" r="60%">
+      <stop offset="0%" stop-color="#f1d8a0" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#f1d8a0" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect width="1200" height="630" fill="url(#glow)" />
+  <g fill="none" stroke="#d5b36a" stroke-opacity="0.18">
+    <path d="M80 500h1040" />
+    <path d="M80 430h1040" />
+    <path d="M160 140h880v330H160z" />
+  </g>
+  <g transform="translate(120 120)">
+    <text x="0" y="54" fill="#d5b36a" font-family="Georgia, serif" font-size="34" letter-spacing="10">SCOREDLE 2026</text>
+    <text x="0" y="178" fill="#f4ecd8" font-family="Georgia, serif" font-size="108" font-weight="700">Predict every</text>
+    <text x="0" y="286" fill="#f4ecd8" font-family="Georgia, serif" font-size="108" font-weight="700">final score</text>
+    <text x="0" y="374" fill="#b8ad93" font-family="Arial, sans-serif" font-size="40">World Cup memory game and scoreboard</text>
+  </g>
+  <g transform="translate(796 118)">
+    <rect width="250" height="352" rx="28" fill="#0f1613" fill-opacity="0.62" stroke="#d5b36a" stroke-opacity="0.36" />
+    <text x="36" y="64" fill="#d5b36a" font-family="Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="4">MATCH TRACKER</text>
+    <text x="36" y="152" fill="#f4ecd8" font-family="Georgia, serif" font-size="76" font-weight="700">42</text>
+    <text x="36" y="198" fill="#b8ad93" font-family="Arial, sans-serif" font-size="28">completed</text>
+    <text x="36" y="264" fill="#8fb988" font-family="Arial, sans-serif" font-size="28">Exact scores</text>
+    <text x="36" y="312" fill="#d6c37e" font-family="Arial, sans-serif" font-size="28">Winner picks</text>
+  </g>
+</svg>
