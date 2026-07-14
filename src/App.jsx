@@ -4,6 +4,7 @@ import { useLeaderboard } from './useLeaderboard'
 
 const STORAGE_KEY = 'tournament-recall-progress-v1'
 const PRACTICE_STORAGE_KEY = 'tournament-recall-practice-v1'
+const LANDING_STORAGE_KEY = 'tournament-recall-landing-seen-v1'
 const TAB_PATHS = {
   play: '/',
   practice: '/practice',
@@ -313,6 +314,18 @@ function restoreGameState() {
   }
 }
 
+function restoreLandingSeen() {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  try {
+    return window.localStorage.getItem(LANDING_STORAGE_KEY) === 'true'
+  } catch {
+    return true
+  }
+}
+
 function getWeaknessWeight(result) {
   if (!result.complete) {
     return 5
@@ -444,7 +457,7 @@ function buildExportPayload({ fixtureOrder, guesses, metrics, elapsedSeconds }) 
   })
 
   return {
-    game: 'Tournament Recall',
+    game: 'Scoredle 2026',
     exportedAt: new Date().toISOString(),
     points: metrics.score,
     maxPoints: metrics.maxScore,
@@ -623,8 +636,8 @@ function CompletionScreen({
 
   return (
     <section className="completion-screen">
-      <p className="screen-title">TOURNAMENT RECALL</p>
-      <h2 className="hero-title">TOURNAMENT RECALL</h2>
+      <p className="screen-title">Scoredle 2026</p>
+      <h2 className="hero-title">Scoredle 2026</h2>
       <p className="completion-points-label">Points</p>
       <h1>{metrics.score} / {metrics.maxScore}</h1>
       <p className="completion-rank">{formatPercentileTop(displayedPercentile) ?? 'Save your score to see percentile'}</p>
@@ -915,6 +928,46 @@ function LeaderboardScreen({ leaderboard, onJumpToPlay }) {
   )
 }
 
+function IntroLanding({ onEnter }) {
+  return (
+    <main className="app-shell app-shell-complete intro-shell">
+      <div className="background-wash" />
+      <section className="intro-landing">
+        <div className="intro-copy">
+          <p className="screen-title">Scoredle</p>
+          <h1 className="hero-title">Remember the tournament. Then prove it.</h1>
+          <p className="intro-lead">
+            Scoredle is a World Cup memory game. You predict the exact final score for each match,
+            build up points for precision, and then drill your weak spots in practice mode.
+          </p>
+        </div>
+
+        <div className="intro-grid">
+          <article className="intro-card">
+            <span className="intro-card-index">01</span>
+            <h2>Play through the full slate</h2>
+            <p>Enter every final score one fixture at a time. Exact calls score highest, but close reads still earn partial credit.</p>
+          </article>
+          <article className="intro-card">
+            <span className="intro-card-index">02</span>
+            <h2>Study what you missed</h2>
+            <p>Practice mode turns harder matches into flash cards, so the results you nearly forgot come back more often.</p>
+          </article>
+          <article className="intro-card">
+            <span className="intro-card-index">03</span>
+            <h2>Save and compare your run</h2>
+            <p>Post your score to the leaderboard, keep a shareable review link, and compare accuracy against everyone else.</p>
+          </article>
+        </div>
+
+        <div className="intro-actions">
+          <button className="primary-button intro-button" type="button" onClick={onEnter}>Get Started</button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function AttemptReviewScreen({ attempt, reviewState, onCopyLink, onBackToPlay, shareState }) {
   const reviewPayload = attempt?.metadata?.reviewPayload ?? null
   const reviewMatches = Array.isArray(reviewPayload?.matches) ? reviewPayload.matches : []
@@ -1009,6 +1062,7 @@ function AttemptReviewScreen({ attempt, reviewState, onCopyLink, onBackToPlay, s
 export default function App() {
   const [initialState] = useState(() => restoreGameState())
   const [initialPracticeState] = useState(() => restorePracticeState())
+  const [landingSeen, setLandingSeen] = useState(() => restoreLandingSeen())
   const [fixtureOrder, setFixtureOrder] = useState(initialState.fixtureOrder)
   const [guesses, setGuesses] = useState(initialState.guesses)
   const [lockedMatches, setLockedMatches] = useState(initialState.lockedMatches)
@@ -1049,6 +1103,16 @@ export default function App() {
       window.history.pushState({}, '', nextPath)
     }
     setRoute(getRouteState(nextPath))
+  }
+
+  function handleEnterSite() {
+    setLandingSeen(true)
+
+    try {
+      window.localStorage.setItem(LANDING_STORAGE_KEY, 'true')
+    } catch {
+      // Ignore storage failures and let this session continue.
+    }
   }
 
   function handleChange(matchId, side, value) {
@@ -1291,19 +1355,19 @@ export default function App() {
       },
       howItWorks: {
         title: `How It Works | ${APP_NAME}`,
-        description: 'Learn how scoring, practice mode, and saved results work in Tournament Recall.',
+        description: 'Learn how scoring, practice mode, and saved results work in Scoredle 2026.',
       },
       privacy: {
         title: `Privacy | ${APP_NAME}`,
-        description: 'Read how Tournament Recall handles browser storage, saved scores, and analytics.',
+        description: 'Read how Scoredle 2026 handles browser storage, saved scores, and analytics.',
       },
       terms: {
         title: `Terms | ${APP_NAME}`,
-        description: 'Review the operating terms for using Tournament Recall and shared links.',
+        description: 'Review the operating terms for using Scoredle 2026 and shared links.',
       },
       attemptReview: {
         title: `Shared Attempt | ${APP_NAME}`,
-        description: 'Open a saved Tournament Recall attempt and review each match pick.',
+        description: 'Open a saved Scoredle 2026 attempt and review each match pick.',
       },
     }
     const page = pageMap[route.mode] ?? pageMap.play
@@ -1507,6 +1571,7 @@ export default function App() {
             heading: 'Use Of Service',
             paragraphs: [
               'The app is provided for entertainment and informal score prediction. Features, availability, and leaderboard rules may change without notice.',
+              'Scoredle 2026 is unofficial and is not affiliated with, endorsed by, sponsored by, or approved by FIFA or the FIFA World Cup.',
             ],
           },
           {
@@ -1541,6 +1606,10 @@ export default function App() {
         <SiteFooter onNavigate={navigateToPath} />
       </>
     )
+  }
+
+  if (!landingSeen && ['play', 'practice', 'leaderboard'].includes(route.mode)) {
+    return <IntroLanding onEnter={handleEnterSite} />
   }
 
   if (showCompletion) {
@@ -1582,8 +1651,8 @@ export default function App() {
 
       <header className="game-header">
         <div className="header-copy">
-          <h1 className="hero-title">TOURNAMENT RECALL 2026</h1>
-          <p className="header-kicker">Host countries: USA, Canada, Mexico</p>
+          <h1 className="hero-title">Scoredle 2026</h1>
+          <p className="hero-subtitle">Predict every final score and track your progress.</p>
         </div>
         <div className="header-meta">
           <div className="tab-row" role="tablist" aria-label="Game mode">
@@ -1601,7 +1670,7 @@ export default function App() {
         <section className="game-layout">
           <aside className="progress-rail" aria-label="Match progress">
             <div className="rail-heading">
-              <p className="screen-title">Tournament Ledger</p>
+              <p className="screen-title">Match Tracker</p>
             </div>
             <div className="progress-copy">
               <span>{metrics.lockedCount} complete</span>
